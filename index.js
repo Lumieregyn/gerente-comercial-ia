@@ -1,4 +1,5 @@
 
+// index.js com lógica completa dos blocos aprovados, IA robusta e análise crítica
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -13,6 +14,20 @@ const VENDEDORES = {
   "ana clara martins": "62991899053",
   "emily sequeira": "62981704171"
 };
+
+function isMensagemCritica(texto) {
+  const textoLimpo = texto.toLowerCase();
+  const ignorar = [
+    "combinado", "perfeito", "obrigado", "ok", "fechado",
+    "pix enviado", "vou falar com o financeiro", "tudo certo",
+    "valeu", "sim", "não", "de nada", "estou à disposição",
+    "chave pix", "vou te enviar o pix", "link de pagamento",
+    "assim que pagar te aviso", "realizar o pagamento", "agradeço",
+    "já enviei", "só confirmar", "segue o comprovante", "vou pagar"
+  ];
+  if (texto.includes("http")) return false;
+  return !ignorar.some(padrao => textoLimpo.includes(padrao));
+}
 
 const MENSAGENS = {
   alerta1: (cliente, vendedor) =>
@@ -106,6 +121,11 @@ app.post("/conversa", async (req, res) => {
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${nomeVendedorOriginal}" não está mapeado.`);
       return res.json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
+    }
+
+    if (!isMensagemCritica(textoMensagem)) {
+      console.log(`[IA] Mensagem ignorada: "${textoMensagem}" → não crítica.`);
+      return res.json({ status: "Ignorado pela IA." });
     }
 
     if (horas >= 18) {

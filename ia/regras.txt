@@ -1,0 +1,9 @@
+IA IGNORA:
+- Frases como "combinado", "pix enviado", "link de pagamento", etc.
+- Links (https://) e expressões de conclusão
+
+IA GERA ALERTA QUANDO:
+- Há insegurança, dúvida, ou ausência de retorno claro
+
+LOG:
+- Toda decisão da IA é registrada via console.log
