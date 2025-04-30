@@ -59,6 +59,10 @@ function horasUteisEntreDatas(inicio, fim) {
 }
 
 async function enviarMensagem(numero, texto) {
+  if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
+    console.warn(`[ERRO] Número inválido ou ausente: "${numero}"`);
+    return;
+  }
   try {
     await axios.post(`${process.env.WPP_URL}/send-message`, {
       number: numero,
@@ -90,40 +94,37 @@ app.post("/conversa", async (req, res) => {
     const nomeVendedor = payload.attendant.Name;
     const textoMensagem = payload.message.text;
     const tipoMensagem = payload.message.type || "text";
-
-    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
-
     const criadoEm = new Date(payload.message.CreatedAt || Date.now() - 19 * 60 * 60 * 1000);
     const agora = new Date();
     const horas = horasUteisEntreDatas(criadoEm, agora);
+    const numeroVendedor = VENDEDORES[nomeVendedor];
 
-    // Alertas por atraso
+    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
+
+    if (!numeroVendedor) {
+      console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
+      return res.json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
+    }
+
     if (horas >= 18) {
-      const numeroVendedor = VENDEDORES[nomeVendedor];
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
       setTimeout(() => {
         enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor));
       }, 10 * 60 * 1000);
     } else if (horas >= 12) {
-      const numeroVendedor = VENDEDORES[nomeVendedor];
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedor));
     } else if (horas >= 6) {
-      const numeroVendedor = VENDEDORES[nomeVendedor];
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedor));
     }
 
-    // Gatilho de fechamento
     if (detectarFechamento(textoMensagem)) {
-      const numeroVendedor = VENDEDORES[nomeVendedor];
       await enviarMensagem(numeroVendedor, `🔔 *Sinal de fechamento detectado*
 
 O cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`);
     }
 
-    // Tratamento de imagem, PDF, áudio
     if (contemArquivoCritico(payload)) {
       const tipo = tipoMensagem === "audio" ? "🎙️ Áudio" : tipoMensagem === "image" ? "🖼️ Imagem" : "📄 Documento";
-      const numeroVendedor = VENDEDORES[nomeVendedor];
       await enviarMensagem(numeroVendedor, `📎 *${tipo} recebido de ${nomeCliente}*
 
 Não se esqueça de validar o conteúdo e confirmar todos os itens do orçamento com o cliente.`);
