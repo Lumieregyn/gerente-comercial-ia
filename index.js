@@ -8,9 +8,9 @@ app.use(bodyParser.json());
 
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 const VENDEDORES = {
-  "Cindy": "62994671766",
-  "Ana Clara": "62991899053",
-  "Emily": "62981704171"
+  "Cindy Loren": "62994671766",
+  "Ana Clara Martins": "62991899053",
+  "Emily Sequeira": "62981704171"
 };
 
 const MENSAGENS = {
