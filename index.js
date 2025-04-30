@@ -70,6 +70,15 @@ async function enviarMensagem(numero, texto) {
   }
 }
 
+function detectarFechamento(mensagem) {
+  const sinais = ["fechado", "vamos fechar", "então tá combinado", "então tá certo"];
+  return sinais.some(palavra => mensagem.toLowerCase().includes(palavra));
+}
+
+function contemArquivoCritico(payload) {
+  return payload.message?.type === "document" || payload.message?.type === "image" || payload.message?.type === "audio";
+}
+
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body?.payload;
@@ -80,6 +89,7 @@ app.post("/conversa", async (req, res) => {
     const nomeCliente = payload.user.Name;
     const nomeVendedor = payload.attendant.Name;
     const textoMensagem = payload.message.text;
+    const tipoMensagem = payload.message.type || "text";
 
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
 
@@ -87,6 +97,7 @@ app.post("/conversa", async (req, res) => {
     const agora = new Date();
     const horas = horasUteisEntreDatas(criadoEm, agora);
 
+    // Alertas por atraso
     if (horas >= 18) {
       const numeroVendedor = VENDEDORES[nomeVendedor];
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
@@ -99,6 +110,23 @@ app.post("/conversa", async (req, res) => {
     } else if (horas >= 6) {
       const numeroVendedor = VENDEDORES[nomeVendedor];
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedor));
+    }
+
+    // Gatilho de fechamento
+    if (detectarFechamento(textoMensagem)) {
+      const numeroVendedor = VENDEDORES[nomeVendedor];
+      await enviarMensagem(numeroVendedor, `🔔 *Sinal de fechamento detectado*
+
+O cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`);
+    }
+
+    // Tratamento de imagem, PDF, áudio
+    if (contemArquivoCritico(payload)) {
+      const tipo = tipoMensagem === "audio" ? "🎙️ Áudio" : tipoMensagem === "image" ? "🖼️ Imagem" : "📄 Documento";
+      const numeroVendedor = VENDEDORES[nomeVendedor];
+      await enviarMensagem(numeroVendedor, `📎 *${tipo} recebido de ${nomeCliente}*
+
+Não se esqueça de validar o conteúdo e confirmar todos os itens do orçamento com o cliente.`);
     }
 
     res.json({ status: "Mensagem processada com sucesso." });
