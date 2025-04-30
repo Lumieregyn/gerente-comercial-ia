@@ -1,3 +1,4 @@
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -8,9 +9,9 @@ app.use(bodyParser.json());
 
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 const VENDEDORES = {
-  "Cindy Loren": "62994671766",
-  "Ana Clara Martins": "62991899053",
-  "Emily Sequeira": "62981704171"
+  "cindy loren": "62994671766",
+  "ana clara martins": "62991899053",
+  "emily sequeira": "62981704171"
 };
 
 const MENSAGENS = {
@@ -91,7 +92,8 @@ app.post("/conversa", async (req, res) => {
     }
 
     const nomeCliente = payload.user.Name;
-    const nomeVendedor = payload.attendant.Name;
+    const nomeVendedorOriginal = payload.attendant.Name || "";
+    const nomeVendedor = nomeVendedorOriginal.toLowerCase().trim();
     const textoMensagem = payload.message.text;
     const tipoMensagem = payload.message.type || "text";
     const criadoEm = new Date(payload.message.CreatedAt || Date.now() - 19 * 60 * 60 * 1000);
@@ -102,19 +104,19 @@ app.post("/conversa", async (req, res) => {
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
 
     if (!numeroVendedor) {
-      console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
+      console.warn(`[ERRO] Vendedor "${nomeVendedorOriginal}" não está mapeado.`);
       return res.json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
     }
 
     if (horas >= 18) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
+      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorOriginal));
       setTimeout(() => {
-        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor));
+        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedorOriginal));
       }, 10 * 60 * 1000);
     } else if (horas >= 12) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedor));
+      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedorOriginal));
     } else if (horas >= 6) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedor));
+      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedorOriginal));
     }
 
     if (detectarFechamento(textoMensagem)) {
