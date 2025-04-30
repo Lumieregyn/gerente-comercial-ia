@@ -12,8 +12,9 @@ const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
-  "emily sequeira": "5562981704171"
-  "fernando fonseca": "5562985293035"
+  "emily sequeira": "5562981704171",
+  "fernando fonseca": "5562985293035",
+  "marcelle menezes": "5562985299828"
 };
 
 function isMensagemCritica(texto) {
