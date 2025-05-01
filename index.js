@@ -28,21 +28,21 @@ const VENDEDORES = {
 
 const MENSAGENS = {
   alerta1: (c, v) =>
-    `⚠️ *Alerta de Atraso - Orçamento*\n\n` +
+    "⚠️ *Alerta de Atraso - Orçamento*\n\n" +
     `Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\n` +
-    `Por favor, retome o atendimento!`,
+    "Por favor, retome o atendimento!",
   alerta2: (c, v) =>
-    `⏰ *Segundo Alerta - Orçamento em Espera*\n\n` +
+    "⏰ *Segundo Alerta - Orçamento em Espera*\n\n" +
     `Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 12h úteis.\n` +
-    `Providencie retorno imediato!`,
+    "Providencie retorno imediato!",
   alertaFinal: (c, v) =>
-    `🚨 *Último Alerta (18h úteis)*\n\n` +
+    "🚨 *Último Alerta (18h úteis)*\n\n" +
     `Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 18h úteis.\n` +
-    `Você tem 10 minutos para responder ou será escalado à gestão.`,
+    "Você tem 10 minutos para responder ou será escalado à gestão.",
   alertaGestores: (c, v) =>
-    `🚨 *Alerta Crítico*\n\n` +
+    "🚨 *Alerta Crítico*\n\n" +
     `O cliente *${c}* aguardou orçamento 18h úteis e não houve resposta de *${v}*.\n` +
-    `Providências urgentes!`
+    "Providências urgentes!"
 };
 
 function horasUteisEntreDatas(inicio, fim) {
@@ -61,7 +61,7 @@ async function enviarMensagem(numero, texto) {
     return;
   }
   try {
-    await axios.post(\`\${process.env.WPP_URL}/send-message\`, {
+    await axios.post(process.env.WPP_URL + '/send-message', {
       number: numero,
       message: texto,
     });
@@ -72,16 +72,16 @@ async function enviarMensagem(numero, texto) {
 
 // Refined auditoria to use dynamic context
 async function auditarAlerta(tipo, cliente, vendedor, texto, mensagemCliente) {
-  const prompt = \`
+  const prompt = `
 Você é a Gerente Comercial IA da LumièreGyn.
-Última mensagem do cliente \${cliente}:
-"\${mensagemCliente}"
-Fluxo de alerta: \${tipo}.
+Última mensagem do cliente ${cliente}:
+"${mensagemCliente}"
+Fluxo de alerta: ${tipo}.
 Tempo de espera atingiu esse limiar em horas úteis?
 O vendedor ainda não respondeu?
 Use compreensão contextual e semântica para decidir SE o cliente está aguardando orçamento e SE devemos enviar este alerta agora.
 Responda apenas "SIM" ou "NÃO".
-\`.trim();
+`.trim();
   const comp = await openai.chat.completions.create({
     model: "gpt-4o",
     messages: [{ role: "user", content: prompt }],
@@ -111,7 +111,7 @@ app.post("/conversa", async (req, res) => {
 
     const cliente = payload.user.Name;
     const vendedorRaw = payload.attendant.Name.trim();
-    const key = \`\${cliente}_\${vendedorRaw}\`.toLowerCase();
+    const key = `${cliente}_${vendedorRaw}`.toLowerCase();
     const vendedorNum = VENDEDORES[vendedorRaw.toLowerCase()];
     if (!vendedorNum) {
       return res.json({ warning: "Vendedor não mapeado." });
@@ -156,7 +156,7 @@ app.post("/conversa", async (req, res) => {
 
     // fechamento detected
     if (hasText && detectarFechamento(msg.text)) {
-      const texto = \`🔔 *Sinal de fechamento detectado*\n\nO cliente *\${cliente}* indicou fechamento.\`;
+      const texto = `🔔 *Sinal de fechamento detectado*\n\nO cliente *${cliente}* indicou fechamento.`;
       if (await auditarAlerta("fechamento", cliente, vendedorRaw, texto, msg.text)) {
         await enviarMensagem(vendedorNum, texto);
       }
@@ -167,7 +167,7 @@ app.post("/conversa", async (req, res) => {
       const tipo = msg.attachments[0].type === "audio" ? "Áudio"
                  : msg.attachments[0].type === "image" ? "Imagem"
                  : "Documento";
-      const texto = \`📎 *\${tipo} recebido de \${cliente}*\n\nValide o conteúdo e confirme itens do orçamento.\`;
+      const texto = `📎 *${tipo} recebido de ${cliente}*\n\nValide o conteúdo e confirme itens do orçamento.`;
       if (await auditarAlerta("attachment", cliente, vendedorRaw, texto, "[anexo]")) {
         await enviarMensagem(vendedorNum, texto);
       }
@@ -181,4 +181,4 @@ app.post("/conversa", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(\`Servidor rodando na porta \${PORT}\`));
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
