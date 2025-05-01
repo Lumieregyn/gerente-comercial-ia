@@ -1,3 +1,4 @@
+```js
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -119,6 +120,7 @@ app.post("/conversa", async (req, res) => {
         file: fs.createReadStream(tmpFile),
         model: "whisper-1"
       });
+      console.log("[TRANSCRICAO]", transcription.text);
       transcricao = transcription.text;
       await fs.promises.unlink(tmpFile);
     }
@@ -139,10 +141,10 @@ app.post("/conversa", async (req, res) => {
     const horas = horasUteisEntreDatas(criadoEm, new Date());
     const last = alertState[key] || 0;
 
-    // Mensagem que o cliente enviou (texto ou transcrição)
-    const mensagemCliente = hasText ? msg.text : transcricao || "[anexo]";
+    // Mensagem do cliente
+    const mensagemCliente = hasText ? msg.text : (transcricao || "[anexo]");
 
-    // Fluxo de atrasos
+    // Lógica de atrasos
     if (horas >= 6 && last < 6) {
       const texto = MENSAGENS.alerta1(cliente, vendedorRaw);
       if (await auditarAlerta("6h", cliente, vendedorRaw, texto, mensagemCliente)) {
@@ -169,7 +171,7 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
-    // Checagem de fechamento
+    // Detecção de fechamento
     if (hasText && detectarFechamento(mensagemCliente)) {
       const texto = `🔔 *Sinal de fechamento detectado*\n\nO cliente *${cliente}* indicou possível fechamento.`;
       if (await auditarAlerta("fechamento", cliente, vendedorRaw, texto, mensagemCliente)) {
@@ -177,7 +179,7 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
-    // Notificação de anexos (imagem, documento ou áudio)
+    // Notificação de anexos
     if (hasAttach) {
       const tipo = msg.attachments[0].type === "audio" ? "Áudio"
                  : msg.attachments[0].type === "image" ? "Imagem"
@@ -197,3 +199,4 @@ app.post("/conversa", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+```
