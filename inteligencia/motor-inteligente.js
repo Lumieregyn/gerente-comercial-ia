@@ -1,36 +1,39 @@
+
 const { OpenAI } = require("openai");
-require("dotenv").config();
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
-async function analisarMensagem(mensagem, nomeCliente, nomeVendedor) {
-  if (!mensagem || mensagem.length < 4) return null;
+async function analisarMensagemComIA(nomeCliente, nomeVendedor, mensagem) {
+  if (!mensagem || mensagem.trim().length < 3) return { mensagemFinal: null };
 
   const prompt = `
-Mensagem recebida de um cliente: "${mensagem}"
-
-Analise como IA Gerente Comercial e responda apenas se for necessário alertar o vendedor.
-
+Analise a mensagem do cliente ${nomeCliente}: "${mensagem}".
 1. O cliente sinalizou intenção de fechamento?
 2. Existe alguma pendência crítica?
 3. Quais pontos devem ser validados antes de finalizar a venda?
+Se a mensagem não for conclusiva, diga "[IA] Sem alerta necessário para ${nomeVendedor}".
+Se houver alerta, gere um texto com sugestão de ação.
 
-Formato da resposta: markdown resumido para envio no WhatsApp.
+Formato da resposta:
+[ANÁLISE IA]:
+1. ...
+2. ...
+3. ...
+[IA] Sem alerta necessário para ${nomeVendedor} // OU mensagem de alerta`;
 
-Use linguagem natural, objetiva e com tom consultivo.
-Se nada for necessário, retorne apenas: null
-`;
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }],
+    });
 
-  const completion = await openai.chat.completions.create({
-    messages: [{ role: "user", content: prompt }],
-    model: "gpt-4o"
-  });
-
-  const output = completion.choices[0]?.message?.content;
-  if (output && output.includes("null")) return null;
-  return `🤖 *Alerta IA:* ${output}`;
+    const content = completion.choices[0].message.content;
+    if (content.includes("[IA] Sem alerta")) return { mensagemFinal: null };
+    return { mensagemFinal: `🤖 *Alerta IA:*
+${content}` };
+  } catch (error) {
+    console.error("[ERRO IA]", error.message);
+    return { mensagemFinal: null };
+  }
 }
 
-module.exports = { analisarMensagem };
+module.exports = { analisarMensagemComIA };
