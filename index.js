@@ -9,8 +9,8 @@ require("dotenv").config();
 const app = express();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// In-memory state to dedupe alerts
-const alertState = {}; // key: `${cliente}_${vendedor}`, value: last threshold sent
+// Estado para não duplicar alertas no mesmo limiar por cliente+vendedor
+const alertState = {};
 
 app.use(bodyParser.json({
   verify: (req, res, buf, encoding) => { req.rawBody = buf.toString(encoding || "utf8"); }
@@ -63,7 +63,7 @@ async function enviarMensagem(numero, texto) {
     return;
   }
   try {
-    await axios.post(process.env.WPP_URL + '/send-message', {
+    await axios.post(`${process.env.WPP_URL}/send-message`, {
       number: numero,
       message: texto,
     });
@@ -72,23 +72,23 @@ async function enviarMensagem(numero, texto) {
   }
 }
 
-async function auditarAlerta(tipo, cliente, vendedor, texto, mensagemCliente) {
+async function auditarAlerta(tipo, cliente, vendedor, alerta, ultimaMsg) {
   const prompt = `
 Você é a Gerente Comercial IA da LumièreGyn.
 Última mensagem do cliente ${cliente}:
-"${mensagemCliente}"
+"${ultimaMsg}"
 Fluxo de alerta: ${tipo}.
 Tempo de espera atingiu esse limiar em horas úteis?
 O vendedor ainda não respondeu?
-Use compreensão contextual e semântica para decidir SE o cliente está aguardando orçamento e SE devemos enviar este alerta agora.
+Use compreensão contextual para decidir SE devemos enviar este alerta.
 Responda apenas "SIM" ou "NÃO".
 `.trim();
-  const comp = await openai.chat.completions.create({
+
+  const res = await openai.chat.completions.create({
     model: "gpt-4o",
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content: prompt }]
   });
-  const resp = comp.choices[0].message.content.trim().toUpperCase();
-  return resp.startsWith("SIM");
+  return res.choices[0].message.content.trim().toUpperCase().startsWith("SIM");
 }
 
 function detectarFechamento(txt) {
@@ -99,22 +99,22 @@ function detectarFechamento(txt) {
 app.post("/conversa", async (req, res) => {
   console.log("[RAW BODY]", req.rawBody);
   try {
-    const payload = req.body?.payload;
+    const payload = req.body.payload;
     if (!payload?.user || !payload?.attendant) {
       return res.status(400).json({ error: "Payload incompleto." });
     }
+
     const msg = payload.message || payload.Message || {};
-    const hasText = !!msg.text;
+    const hasText = Boolean(msg.text);
     const hasAttach = Array.isArray(msg.attachments) && msg.attachments.length > 0;
 
-    // Se for áudio, transcrever antes de prosseguir
+    // Transcrever áudio se houver
     let transcricao = null;
     if (hasAttach && msg.attachments[0].type === "audio") {
       const url = msg.attachments[0].payload.url;
-      const audioResp = await axios.get(url, { responseType: 'arraybuffer' });
-      const buffer = Buffer.from(audioResp.data);
+      const buffer = (await axios.get(url, { responseType: 'arraybuffer' })).data;
       const tmpFile = path.join('/tmp', `${msg.attachments[0].payload.attachment_id}.ogg`);
-      await fs.promises.writeFile(tmpFile, buffer);
+      await fs.promises.writeFile(tmpFile, Buffer.from(buffer));
       const transcription = await openai.audio.transcriptions.create({
         file: fs.createReadStream(tmpFile),
         model: "whisper-1"
@@ -124,7 +124,7 @@ app.post("/conversa", async (req, res) => {
     }
 
     if (!hasText && !hasAttach) {
-      return res.status(400).json({ error: "Sem texto ou attachments." });
+      return res.status(400).json({ error: "Sem texto ou anexos." });
     }
 
     const cliente = payload.user.Name;
@@ -135,35 +135,27 @@ app.post("/conversa", async (req, res) => {
       return res.json({ warning: "Vendedor não mapeado." });
     }
 
-    const timeRaw = msg.CreatedAt || req.body.timestamp;
-    const criadoEm = new Date(timeRaw);
+    const criadoEm = new Date(msg.CreatedAt || req.body.timestamp);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
     const last = alertState[key] || 0;
 
-    // Define mensagemCliente com texto ou transcrição de áudio
-    let mensagemCliente;
-    if (hasText) mensagemCliente = msg.text;
-    else if (transcricao) mensagemCliente = transcricao;
-    else mensagemCliente = "[anexo]";
+    // Mensagem que o cliente enviou (texto ou transcrição)
+    const mensagemCliente = hasText ? msg.text : transcricao || "[anexo]";
 
-    // 6h
+    // Fluxo de atrasos
     if (horas >= 6 && last < 6) {
       const texto = MENSAGENS.alerta1(cliente, vendedorRaw);
       if (await auditarAlerta("6h", cliente, vendedorRaw, texto, mensagemCliente)) {
         alertState[key] = 6;
         await enviarMensagem(vendedorNum, texto);
       }
-    }
-    // 12h
-    else if (horas >= 12 && last < 12) {
+    } else if (horas >= 12 && last < 12) {
       const texto = MENSAGENS.alerta2(cliente, vendedorRaw);
       if (await auditarAlerta("12h", cliente, vendedorRaw, texto, mensagemCliente)) {
         alertState[key] = 12;
         await enviarMensagem(vendedorNum, texto);
       }
-    }
-    // 18h
-    else if (horas >= 18 && last < 18) {
+    } else if (horas >= 18 && last < 18) {
       const texto = MENSAGENS.alertaFinal(cliente, vendedorRaw);
       if (await auditarAlerta("18h", cliente, vendedorRaw, texto, mensagemCliente)) {
         alertState[key] = 18;
@@ -177,15 +169,15 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
-    // Fechamento
+    // Checagem de fechamento
     if (hasText && detectarFechamento(mensagemCliente)) {
-      const texto = `🔔 *Sinal de fechamento detectado*\n\nO cliente *${cliente}* indicou fechamento.`;
+      const texto = `🔔 *Sinal de fechamento detectado*\n\nO cliente *${cliente}* indicou possível fechamento.`;
       if (await auditarAlerta("fechamento", cliente, vendedorRaw, texto, mensagemCliente)) {
         await enviarMensagem(vendedorNum, texto);
       }
     }
 
-    // Notification de attachment (imagem, documento ou áudio original)
+    // Notificação de anexos (imagem, documento ou áudio)
     if (hasAttach) {
       const tipo = msg.attachments[0].type === "audio" ? "Áudio"
                  : msg.attachments[0].type === "image" ? "Imagem"
@@ -196,7 +188,7 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
-    res.json({ status: "Mensagem processada com sucesso." });
+    res.json({ status: "ok" });
   } catch (err) {
     console.error("[ERRO]", err);
     res.status(500).json({ error: "Erro interno." });
