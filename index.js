@@ -1,4 +1,3 @@
-```js
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -10,9 +9,10 @@ require("dotenv").config();
 const app = express();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Evitar alertas duplicados para o mesmo cliente+vendedor em limiares
+// Estado para evitar duplicação de alertas
 const alertState = {};
 
+// Middleware para capturar rawBody e suportar payloads grandes
 app.use(bodyParser.json({
   verify: (req, res, buf, encoding) => { req.rawBody = buf.toString(encoding || "utf8"); }
 }));
@@ -21,6 +21,7 @@ app.use(bodyParser.urlencoded({
   verify: (req, res, buf, encoding) => { req.rawBody = buf.toString(encoding || "utf8"); }
 }));
 
+// IDs e mapeamentos
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 const VENDEDORES = {
   "cindy loren": "5562994671766",
@@ -29,28 +30,15 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
+// Mensagens de alerta
 const MENSAGENS = {
-  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*
-
-Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.
-Por favor, retome o atendimento!`,
-
-  alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*
-
-Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 12h úteis.
-Providencie retorno imediato!`,
-
-  alertaFinal: (c, v) => `🚨 *Último Alerta (18h úteis)*
-
-Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 18h úteis.
-Você tem 10 minutos para responder ou será escalado à gestão.`,
-
-  alertaGestores: (c, v) => `🚨 *Alerta Crítico*
-
-O cliente *${c}* aguardou orçamento 18h úteis sem resposta de *${v}*.
-Providências urgentes!`
+  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nPor favor, retome o atendimento!`,
+  alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 12h úteis.\nProvidencie retorno imediato!`,
+  alertaFinal: (c, v) => `🚨 *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 18h úteis.\nVocê tem 10 minutos para responder ou será escalado à gestão.`,
+  alertaGestores: (c, v) => `🚨 *Alerta Crítico*\n\nO cliente *${c}* aguardou orçamento 18h úteis sem resposta de *${v}*.\nProvidências urgentes!`
 };
 
+// Calcula horas úteis entre duas datas
 function horasUteisEntreDatas(inicio, fim) {
   let start = new Date(inicio), end = new Date(fim), horas = 0;
   while (start < end) {
@@ -61,6 +49,7 @@ function horasUteisEntreDatas(inicio, fim) {
   return horas;
 }
 
+// Envia mensagem via WppConnect
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
     console.warn("[ERRO] Número inválido: " + numero);
@@ -73,23 +62,20 @@ async function enviarMensagem(numero, texto) {
   }
 }
 
+// Chama GPT para validar se alerta deve ser disparado
 async function auditarAlerta(tipo, cliente, vendedor, texto, ultimaMsg) {
-  const prompt = `Você é a Gerente Comercial IA da LumièreGyn.
-Última mensagem do cliente ${cliente}:
-"${ultimaMsg}"
-Fluxo de alerta: ${tipo}.
-Tempo de espera atingiu esse limiar em horas úteis? Ainda sem resposta do vendedor?
-Responda apenas "SIM" ou "NÃO".`;
-
+  const prompt = `Você é a Gerente Comercial IA da LumièreGyn.\nÚltima mensagem do cliente ${cliente}: \n"${ultimaMsg}"\nFluxo de alerta: ${tipo}.\nEnvie SIM ou NÃO.`;
   const res = await openai.chat.completions.create({ model: "gpt-4o", messages: [{ role: "user", content: prompt }] });
   return res.choices[0].message.content.trim().toUpperCase().startsWith("SIM");
 }
 
+// Detecta intenções de fechamento
 function detectarFechamento(txt) {
   const sinais = ["fechado","vamos fechar","então tá combinado","então tá certo"];
   return sinais.some(s => txt.toLowerCase().includes(s));
 }
 
+// Endpoint principal
 app.post("/conversa", async (req, res) => {
   console.log("[RAW BODY]", req.rawBody);
   try {
@@ -101,6 +87,7 @@ app.post("/conversa", async (req, res) => {
     const hasAttach = Array.isArray(msg.attachments) && msg.attachments.length > 0;
 
     let transcricao = null;
+    // Transcrição de áudio
     if (hasAttach && msg.attachments[0].type === "audio") {
       const url = msg.attachments[0].payload.url;
       const buffer = (await axios.get(url, { responseType: 'arraybuffer' })).data;
@@ -125,6 +112,7 @@ app.post("/conversa", async (req, res) => {
     const last = alertState[key] || 0;
     const textoCliente = hasText ? msg.text : (transcricao || "[anexo]");
 
+    // Fluxo de alertas
     if (horas >= 6 && last < 6) {
       const txt = MENSAGENS.alerta1(cliente, vendedorRaw);
       if (await auditarAlerta("6h", cliente, vendedorRaw, txt, textoCliente)) {
@@ -151,6 +139,7 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
+    // Fechamento
     if (hasText && detectarFechamento(textoCliente)) {
       const txt = `🔔 *Sinal de fechamento detectado*\n\nO cliente *${cliente}* indicou possível fechamento.`;
       if (await auditarAlerta("fechamento", cliente, vendedorRaw, txt, textoCliente)) {
@@ -158,10 +147,9 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
+    // Anexos
     if (hasAttach) {
-      const tipo = msg.attachments[0].type === "audio" ? "Áudio"
-                 : msg.attachments[0].type === "image" ? "Imagem"
-                 : "Documento";
+      const tipo = msg.attachments[0].type === "audio" ? "Áudio" : msg.attachments[0].type === "image" ? "Imagem" : "Documento";
       const txt = `📎 *${tipo} recebido de ${cliente}*\n\nValide o conteúdo e confirme itens do orçamento.`;
       if (await auditarAlerta("attachment", cliente, vendedorRaw, txt, textoCliente)) {
         await enviarMensagem(vendedorNum, txt);
@@ -177,4 +165,3 @@ app.post("/conversa", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
-```
