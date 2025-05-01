@@ -13,7 +13,7 @@ const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
   "emily sequeira": "5562981704171",
-  "fernando fonseca": "5562985293035"
+  "fernando fonseca": "556285293035"
 };
 
 async function enviarMensagem(numero, texto) {
