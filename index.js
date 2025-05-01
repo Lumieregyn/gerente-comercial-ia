@@ -4,6 +4,7 @@ const bodyParser = require("body-parser");
 const axios = require("axios");
 const app = express();
 require("dotenv").config();
+const { analisarMensagemComIA } = require("./inteligencia/motor-inteligente");
 
 app.use(bodyParser.json());
 
@@ -15,47 +16,15 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-function isMensagemCritica(texto) {
-  const textoLimpo = texto.toLowerCase();
-  const ignorar = [
-    "combinado", "perfeito", "obrigado", "ok", "fechado",
-    "pix enviado", "vou falar com o financeiro", "tudo certo",
-    "valeu", "sim", "não", "de nada", "estou à disposição",
-    "chave pix", "vou te enviar o pix", "link de pagamento",
-    "assim que pagar te aviso", "realizar o pagamento", "agradeço",
-    "já enviei", "só confirmar", "segue o comprovante", "vou pagar"
-  ];
-  if (texto.includes("http")) return false;
-  return !ignorar.some(padrao => textoLimpo.includes(padrao));
-}
-
 const MENSAGENS = {
   alerta1: (cliente, vendedor) =>
-    `⚠️ *Alerta de Atraso - Orçamento*
-
-O cliente *${cliente}* ainda não teve retorno após 6h úteis.
-Vendedor responsável: *${vendedor}*.
-
-Por favor, retome o contato imediatamente!`,
+    `⚠️ *Alerta de Atraso - Orçamento*\n\nO cliente *${cliente}* ainda não teve retorno após 6h úteis.\nVendedor responsável: *${vendedor}*.\n\nPor favor, retome o contato imediatamente!`,
   alerta2: (cliente, vendedor) =>
-    `⏰ *Segundo Alerta - Orçamento em Espera*
-
-O cliente *${cliente}* continua sem resposta após 12h úteis.
-Vendedor: *${vendedor}*.`,
+    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nO cliente *${cliente}* continua sem resposta após 12h úteis.\nVendedor: *${vendedor}*.`,
   alertaFinal: (cliente, vendedor) =>
-    `‼️ *Último Alerta (18h úteis)*
-
-Cliente *${cliente}* não teve retorno mesmo após 18h úteis.
-Vendedor: *${vendedor}*
-
-Será enviado um alerta à gestão em *10 minutos* se não houver resposta.`,
+    `‼️ *Último Alerta (18h úteis)*\n\nCliente *${cliente}* não teve retorno mesmo após 18h úteis.\nVendedor: *${vendedor}*\n\nSerá enviado um alerta à gestão em *10 minutos* se não houver resposta.`,
   alertaGestores: (cliente, vendedor) =>
-    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*
-
-Cliente *${cliente}* segue sem retorno após 18h úteis.
-Responsável: *${vendedor}*
-
-⚠️ Por favor, verificar esse caso com urgência.`
+    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${cliente}* segue sem retorno após 18h úteis.\nResponsável: *${vendedor}*\n\n⚠️ Por favor, verificar esse caso com urgência.`
 };
 
 function horasUteisEntreDatas(inicio, fim) {
@@ -76,7 +45,7 @@ function horasUteisEntreDatas(inicio, fim) {
 
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
-    console.warn(`[ERRO] Número inválido ou ausente: "${numero}"`);
+    console.warn(`[ERRO] Número inválido ou ausente: "{numero}"`);
     return;
   }
   try {
@@ -88,15 +57,6 @@ async function enviarMensagem(numero, texto) {
   } catch (err) {
     console.error("Erro ao enviar mensagem:", err.response?.data || err.message);
   }
-}
-
-function detectarFechamento(mensagem) {
-  const sinais = ["fechado", "vamos fechar", "então tá combinado", "então tá certo"];
-  return sinais.some(palavra => mensagem.toLowerCase().includes(palavra));
-}
-
-function contemArquivoCritico(payload) {
-  return payload.message?.type === "document" || payload.message?.type === "image" || payload.message?.type === "audio";
 }
 
 app.post("/conversa", async (req, res) => {
@@ -123,18 +83,15 @@ app.post("/conversa", async (req, res) => {
       return res.json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
     }
 
-    if (!isMensagemCritica(textoMensagem)) {
-      console.log(`[IA] Mensagem ignorada: "${textoMensagem}" → não crítica.`);
-      return res.json({ status: "Ignorado pela IA." });
+    const analise = await analisarMensagemComIA(payload);
+
+    console.log("[IA-GPT] Resposta:", analise.mensagemExplicativa);
+
+    if (analise.fechamentoDetectado) {
+      await enviarMensagem(numeroVendedor, `🔔 *Sinal de fechamento detectado*\n\nO cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`);
     }
 
-    const fechamentoDetectado = detectarFechamento(textoMensagem);
-    if (fechamentoDetectado) {
-      console.log(`[IA] Sinal de fechamento detectado. Nenhum alerta de orçamento será enviado.`);
-      await enviarMensagem(numeroVendedor, `🔔 *Sinal de fechamento detectado*
-
-O cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`);
-    } else {
+    if (analise.alertaOrcamento) {
       if (horas >= 18) {
         await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorOriginal));
         setTimeout(() => {
@@ -147,14 +104,11 @@ O cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e env
       }
     }
 
-    if (contemArquivoCritico(payload)) {
-      const tipo = tipoMensagem === "audio" ? "🎙️ Áudio" : tipoMensagem === "image" ? "🖼️ Imagem" : "📄 Documento";
-      await enviarMensagem(numeroVendedor, `📎 *${tipo} recebido de ${nomeCliente}*
-
-Não se esqueça de validar o conteúdo e confirmar todos os itens do orçamento com o cliente.`);
+    if (analise.checklistNecessario) {
+      await enviarMensagem(numeroVendedor, `✅ *Checklist Final Recomendado*\n\nA IA identificou necessidade de revisão no atendimento com *${nomeCliente}*. Por favor, valide antes de prosseguir.`);
     }
 
-    res.json({ status: "Mensagem processada com sucesso." });
+    res.json({ status: "Processado com inteligência GPT-4o." });
   } catch (err) {
     console.error("[ERRO] Falha ao processar conversa:", err);
     res.status(500).json({ error: "Erro interno ao processar a mensagem." });
