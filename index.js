@@ -1,27 +1,20 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
-const app = express();
 require("dotenv").config();
+const app = express();
 
-// Middleware to capture raw body
-app.use((req, res, next) => {
-  let data = "";
-  req.setEncoding("utf8");
-  req.on("data", chunk => data += chunk);
-  req.on("end", () => {
-    req.rawBody = data;
-    next();
-  });
-});
-
-// Support JSON and URL-encoded payloads with raw body capture
+// Body parsers with rawBody capture
 app.use(bodyParser.json({
-  verify: (req, res, buf) => { req.rawBody = buf.toString(); }
+  verify: (req, res, buf, encoding) => {
+    req.rawBody = buf.toString(encoding || 'utf8');
+  }
 }));
 app.use(bodyParser.urlencoded({
   extended: true,
-  verify: (req, res, buf) => { req.rawBody = buf.toString(); }
+  verify: (req, res, buf, encoding) => {
+    req.rawBody = buf.toString(encoding || 'utf8');
+  }
 }));
 
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
@@ -38,7 +31,7 @@ const MENSAGENS = {
   alerta2: (cliente, vendedor) =>
     `⏰ *Segundo Alerta - Orçamento em Espera*\n\nO cliente *${cliente}* continua sem resposta após 12h úteis.\nVendedor: *${vendedor}*.`,
   alertaFinal: (cliente, vendedor) =>
-    `‼️ *Último Alerta (18h úteis)*\n\nCliente *${cliente}* não teve retorno mesmo após 18h úteis.\nVendedor: *${vendedor}*\n\nSerá enviado um alerta à gestão em *10 minutos* se não houver resposta.`,
+    `‼️ *Último Alerta (18h úteis)*\n\nCliente *${cliente}* não teve retorno mesmo após 18h úteis.\nVendedor: *${vendedor}*\n\nVocê tem 10 minutos para responder esta mensagem.`,
   alertaGestores: (cliente, vendedor) =>
     `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${cliente}* segue sem retorno após 18h úteis.\nResponsável: *${vendedor}*\n\n⚠️ Por favor, verificar esse caso com urgência.`
 };
@@ -81,56 +74,52 @@ function detectarFechamento(mensagem) {
 }
 
 function contemArquivoCritico(payload) {
-  return payload.message?.type === "document" || payload.message?.type === "image" || payload.message?.type === "audio";
+  return ["document", "image", "audio"].includes(payload.message?.type);
 }
 
 app.post("/conversa", async (req, res) => {
-  // Log raw body for debugging
-  console.log("[RAW BODY]", req.rawBody);
-
+  const raw = req.rawBody;
   try {
     const payload = req.body?.payload;
     if (!payload || !payload.user || !payload.attendant || !payload.message?.text) {
-      console.error("[INVALID PAYLOAD] Missing required fields.", req.rawBody);
+      console.error("[ERRO] Payload incompleto:", raw);
       return res.status(400).json({ error: "Payload incompleto." });
     }
-
     const nomeCliente = payload.user.Name;
-    const nomeVendedor = payload.attendant.Name;
+    const nomeVendedor = payload.attendant.Name.toLowerCase();
     const textoMensagem = payload.message.text;
     const tipoMensagem = payload.message.type || "text";
     const criadoEm = new Date(payload.message.CreatedAt || Date.now() - 19 * 60 * 60 * 1000);
     const agora = new Date();
     const horas = horasUteisEntreDatas(criadoEm, agora);
-    const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
+    const numeroVendedor = VENDEDORES[nomeVendedor];
 
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
-
     if (!numeroVendedor) {
-      console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
+      console.warn(`[ERRO] Vendedor "${payload.attendant.Name}" não está mapeado.`);
       return res.json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
     }
 
     if (horas >= 18) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
+      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, payload.attendant.Name));
       setTimeout(() => {
-        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor));
+        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, payload.attendant.Name));
       }, 10 * 60 * 1000);
     } else if (horas >= 12) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedor));
+      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, payload.attendant.Name));
     } else if (horas >= 6) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedor));
+      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, payload.attendant.Name));
     }
 
     if (detectarFechamento(textoMensagem)) {
-      await enviarMensagem(numeroVendedor, `🔔 *Sinal de fechamento detectado*\n\nO cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`);
+      await enviarMensagem(numeroVendedor,
+        `🔔 *Sinal de fechamento detectado*\n\nO cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`);
     }
-
     if (contemArquivoCritico(payload)) {
-      const tipo = tipoMensagem === "audio" ? "🎙️ Áudio" : tipoMensagem === "image" ? "🖼️ Imagem" : "📄 Documento";
-      await enviarMensagem(numeroVendedor, `📎 *${tipo} recebido de ${nomeCliente}*\n\nNão se esqueça de validar o conteúdo e confirmar todos os itens do orçamento com o cliente.`);
+      const tipo = tipoMensagem === "audio"? "🎙️ Áudio" : tipoMensagem === "image"? "🖼️ Imagem": "📄 Documento";
+      await enviarMensagem(numeroVendedor,
+        `📎 *${tipo} recebido de ${nomeCliente}*\n\nNão se esqueça de validar o conteúdo e confirmar todos os itens do orçamento com o cliente.`);
     }
-
     res.json({ status: "Mensagem processada com sucesso." });
   } catch (err) {
     console.error("[ERRO] Falha ao processar conversa:", err);
@@ -139,6 +128,4 @@ app.post("/conversa", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Servidor do Gerente Comercial IA rodando na porta", PORT);
-});
+app.listen(PORT, () => console.log("Servidor do Gerente Comercial IA rodando na porta", PORT));
