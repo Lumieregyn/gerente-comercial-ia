@@ -1,12 +1,11 @@
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 require("dotenv").config();
-
 const app = express();
-app.use(bodyParser.json());
 
-const { analisarMensagem } = require("./inteligencia/motor-inteligente");
+app.use(bodyParser.json());
 
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 const VENDEDORES = {
@@ -16,19 +15,6 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-async function enviarMensagem(numero, texto) {
-  if (!numero) return;
-  try {
-    await axios.post(`${process.env.WPP_URL}/send-message`, {
-      number: numero,
-      message: texto,
-    });
-    console.log(`Mensagem enviada para ${numero}: ${texto}`);
-  } catch (err) {
-    console.error("Erro ao enviar mensagem:", err.response?.data || err.message);
-  }
-}
-
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body?.payload;
@@ -37,25 +23,26 @@ app.post("/conversa", async (req, res) => {
     }
 
     const nomeCliente = payload.user.Name;
-    const nomeVendedor = (payload.attendant.Name || "").toLowerCase().trim();
+    const nomeVendedor = payload.attendant.Name?.trim().toLowerCase();
     const textoMensagem = payload.message.text;
+
+    const numeroVendedor = VENDEDORES[nomeVendedor];
 
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
 
-    const numeroVendedor = VENDEDORES[nomeVendedor];
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
-      return res.status(200).json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
+      return res.json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
     }
 
-    const respostaIA = await analisarMensagem(textoMensagem, nomeCliente, nomeVendedor);
-    if (respostaIA) {
-      await enviarMensagem(numeroVendedor, respostaIA);
-    } else {
-      console.log("[IA] Sem alerta necessário para", nomeVendedor);
-    }
+    const mensagem = `🤖 *Alerta IA:* Mensagem do cliente ${nomeCliente}: "${textoMensagem}"`;
+    const resposta = await axios.post(`${process.env.WPP_URL}/send-message`, {
+      number: numeroVendedor,
+      message: mensagem,
+    });
 
-    res.status(200).json({ status: "Processado com sucesso", alerta: !!respostaIA });
+    console.log("Resposta da API:", resposta.data);
+    res.json({ status: "Mensagem processada com sucesso." });
   } catch (err) {
     console.error("[ERRO] Falha ao processar conversa:", err);
     res.status(500).json({ error: "Erro interno ao processar a mensagem." });
