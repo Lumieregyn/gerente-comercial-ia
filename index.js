@@ -7,13 +7,13 @@ const app = express();
 // Body parsers with rawBody capture
 app.use(bodyParser.json({
   verify: (req, res, buf, encoding) => {
-    req.rawBody = buf.toString(encoding || 'utf8');
+    req.rawBody = buf.toString(encoding || "utf8");
   }
 }));
 app.use(bodyParser.urlencoded({
   extended: true,
   verify: (req, res, buf, encoding) => {
-    req.rawBody = buf.toString(encoding || 'utf8');
+    req.rawBody = buf.toString(encoding || "utf8");
   }
 }));
 
@@ -27,13 +27,24 @@ const VENDEDORES = {
 
 const MENSAGENS = {
   alerta1: (cliente, vendedor) =>
-    `⚠️ *Alerta de Atraso - Orçamento*\n\nO cliente *${cliente}* ainda não teve retorno após 6h úteis.\nVendedor responsável: *${vendedor}*.\n\nPor favor, retome o contato imediatamente!`,
+    `⚠️ *Alerta de Atraso - Orçamento*\n\n` +
+    `O cliente *${cliente}* ainda não teve retorno após 6h úteis.\n` +
+    `Vendedor responsável: *${vendedor}*.\n\n` +
+    `Por favor, retome o contato imediatamente!`,
   alerta2: (cliente, vendedor) =>
-    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nO cliente *${cliente}* continua sem resposta após 12h úteis.\nVendedor: *${vendedor}*.`,
+    `⏰ *Segundo Alerta - Orçamento em Espera*\n\n` +
+    `O cliente *${cliente}* continua sem resposta após 12h úteis.\n` +
+    `Vendedor: *${vendedor}*.`,
   alertaFinal: (cliente, vendedor) =>
-    `‼️ *Último Alerta (18h úteis)*\n\nCliente *${cliente}* não teve retorno mesmo após 18h úteis.\nVendedor: *${vendedor}*\n\nVocê tem 10 minutos para responder esta mensagem.`,
+    `‼️ *Último Alerta (18h úteis)*\n\n` +
+    `Cliente *${cliente}* não teve retorno mesmo após 18h úteis.\n` +
+    `Vendedor: *${vendedor}*\n\n` +
+    `Você tem 10 minutos para responder esta mensagem.`,
   alertaGestores: (cliente, vendedor) =>
-    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${cliente}* segue sem retorno após 18h úteis.\nResponsável: *${vendedor}*\n\n⚠️ Por favor, verificar esse caso com urgência.`
+    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\n` +
+    `Cliente *${cliente}* segue sem retorno após 18h úteis.\n` +
+    `Responsável: *${vendedor}*\n\n` +
+    `⚠️ Por favor, verificar esse caso com urgência.`
 };
 
 function horasUteisEntreDatas(inicio, fim) {
@@ -42,9 +53,9 @@ function horasUteisEntreDatas(inicio, fim) {
   let horas = 0;
   const current = new Date(start);
   while (current < end) {
-    const hora = current.getHours();
-    const dia = current.getDay();
-    if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) {
+    const h = current.getHours();
+    const d = current.getDay();
+    if (d >= 1 && d <= 5 && h >= 8 && h < 19) {
       horas++;
     }
     current.setHours(current.getHours() + 1);
@@ -73,40 +84,44 @@ function detectarFechamento(mensagem) {
   return sinais.some(palavra => mensagem.toLowerCase().includes(palavra));
 }
 
-function contemArquivoCritico(payload) {
-  // Check for attachments array
-  return payload.message?.attachments?.length > 0;
+function contemArquivoCritico(msg) {
+  return Array.isArray(msg.attachments) && msg.attachments.length > 0;
 }
 
 app.post("/conversa", async (req, res) => {
-  // Log raw body for debugging
   console.log("[RAW BODY]", req.rawBody);
 
   try {
     const payload = req.body?.payload;
-    const hasText = !!payload.message?.text;
-    const hasAttach = payload.message?.attachments?.length > 0;
-
-    if (!payload || !payload.user || !payload.attendant || (!hasText && !hasAttach)) {
+    if (!payload || !payload.user || !payload.attendant) {
       console.error("[ERRO] Payload incompleto:", req.rawBody);
       return res.status(400).json({ error: "Payload incompleto." });
     }
 
-    const nomeCliente = payload.user.Name;
-    const nomeVendedor = payload.attendant.Name.toLowerCase().trim();
-    const textoMensagem = payload.message.text || "";
-    const tipoMensagem = payload.message.type || (hasAttach ? payload.message.attachments[0].type : "text");
-    const criadoEm = new Date(payload.message.CreatedAt || Date.now() - 19 * 60 * 60 * 1000);
-    const agora = new Date();
-    const horas = horasUteisEntreDatas(criadoEm, agora);
-    const numeroVendedor = VENDEDORES[nomeVendedor];
+    // fallback para 'message' minúsculo ou 'Message' maiúsculo
+    const msg = payload.message || payload.Message || {};
+    const hasText = !!msg.text;
+    const hasAttach = contemArquivoCritico(msg);
 
-    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
+    if (!hasText && !hasAttach) {
+      console.error("[ERRO] Sem texto ou attachments:", req.rawBody);
+      return res.status(400).json({ error: "Payload incompleto." });
+    }
+
+    const nomeCliente = payload.user.Name;
+    const nomeVendedorKey = payload.attendant.Name.toLowerCase().trim();
+    const numeroVendedor = VENDEDORES[nomeVendedorKey];
+
+    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${msg.text || '[attachment]'}"`);
 
     if (!numeroVendedor) {
-      console.warn(`[ERRO] Vendedor "${payload.attendant.Name}" não está mapeado.`);
+      console.warn(`[ERRO] Vendedor "${payload.attendant.Name}" não mapeado.`);
       return res.json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
     }
+
+    const criadoEm = new Date(msg.CreatedAt || Date.now() - 19 * 60 * 60 * 1000);
+    const agora = new Date();
+    const horas = horasUteisEntreDatas(criadoEm, agora);
 
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, payload.attendant.Name));
@@ -119,15 +134,21 @@ app.post("/conversa", async (req, res) => {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, payload.attendant.Name));
     }
 
-    if (detectarFechamento(textoMensagem)) {
+    if (detectarFechamento(msg.text || "")) {
       await enviarMensagem(numeroVendedor,
-        `🔔 *Sinal de fechamento detectado*\n\nO cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`);
+        `🔔 *Sinal de fechamento detectado*\n\n` +
+        `O cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`
+      );
     }
 
-    if (contemArquivoCritico(payload)) {
-      const tipo = tipoMensagem === "audio"? "🎙️ Áudio" : tipoMensagem === "image"? "🖼️ Imagem": "📄 Documento";
+    if (hasAttach) {
+      const tipo = msg.attachments[0].type === "audio" ? "🎙️ Áudio"
+                 : msg.attachments[0].type === "image" ? "🖼️ Imagem"
+                 : "📄 Documento";
       await enviarMensagem(numeroVendedor,
-        `📎 *${tipo} recebido de ${nomeCliente}*\n\nNão se esqueça de validar o conteúdo e confirmar todos os itens do orçamento com o cliente.`);
+        `📎 *${tipo} recebido de ${nomeCliente}*\n\n` +
+        `Não se esqueça de validar o conteúdo e confirmar todos os itens do orçamento com o cliente.`
+      );
     }
 
     res.json({ status: "Mensagem processada com sucesso." });
