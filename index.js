@@ -60,7 +60,8 @@ app.post("/conversa", async (req, res) => {
     const criadoEm = new Date(payload.message.CreatedAt || Date.now() - 19 * 60 * 60 * 1000);
     const agora = new Date();
     const horas = horasUteisEntreDatas(criadoEm, agora);
-    const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
+    const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase().trim()];
+
 
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
 
