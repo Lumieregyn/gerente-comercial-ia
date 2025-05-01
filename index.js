@@ -1,6 +1,8 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 const { OpenAI } = require("openai");
 require("dotenv").config();
 
@@ -70,7 +72,6 @@ async function enviarMensagem(numero, texto) {
   }
 }
 
-// Refined auditoria to use dynamic context
 async function auditarAlerta(tipo, cliente, vendedor, texto, mensagemCliente) {
   const prompt = `
 Você é a Gerente Comercial IA da LumièreGyn.
@@ -105,6 +106,23 @@ app.post("/conversa", async (req, res) => {
     const msg = payload.message || payload.Message || {};
     const hasText = !!msg.text;
     const hasAttach = Array.isArray(msg.attachments) && msg.attachments.length > 0;
+
+    // Se for áudio, transcrever antes de prosseguir
+    let transcricao = null;
+    if (hasAttach && msg.attachments[0].type === "audio") {
+      const url = msg.attachments[0].payload.url;
+      const audioResp = await axios.get(url, { responseType: 'arraybuffer' });
+      const buffer = Buffer.from(audioResp.data);
+      const tmpFile = path.join('/tmp', `${msg.attachments[0].payload.attachment_id}.ogg`);
+      await fs.promises.writeFile(tmpFile, buffer);
+      const transcription = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(tmpFile),
+        model: "whisper-1"
+      });
+      transcricao = transcription.text;
+      await fs.promises.unlink(tmpFile);
+    }
+
     if (!hasText && !hasAttach) {
       return res.status(400).json({ error: "Sem texto ou attachments." });
     }
@@ -121,9 +139,14 @@ app.post("/conversa", async (req, res) => {
     const criadoEm = new Date(timeRaw);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
     const last = alertState[key] || 0;
-    const mensagemCliente = hasText ? msg.text : "[anexo]";
 
-    // 6h alert
+    // Define mensagemCliente com texto ou transcrição de áudio
+    let mensagemCliente;
+    if (hasText) mensagemCliente = msg.text;
+    else if (transcricao) mensagemCliente = transcricao;
+    else mensagemCliente = "[anexo]";
+
+    // 6h
     if (horas >= 6 && last < 6) {
       const texto = MENSAGENS.alerta1(cliente, vendedorRaw);
       if (await auditarAlerta("6h", cliente, vendedorRaw, texto, mensagemCliente)) {
@@ -131,7 +154,7 @@ app.post("/conversa", async (req, res) => {
         await enviarMensagem(vendedorNum, texto);
       }
     }
-    // 12h alert
+    // 12h
     else if (horas >= 12 && last < 12) {
       const texto = MENSAGENS.alerta2(cliente, vendedorRaw);
       if (await auditarAlerta("12h", cliente, vendedorRaw, texto, mensagemCliente)) {
@@ -139,7 +162,7 @@ app.post("/conversa", async (req, res) => {
         await enviarMensagem(vendedorNum, texto);
       }
     }
-    // 18h alert
+    // 18h
     else if (horas >= 18 && last < 18) {
       const texto = MENSAGENS.alertaFinal(cliente, vendedorRaw);
       if (await auditarAlerta("18h", cliente, vendedorRaw, texto, mensagemCliente)) {
@@ -154,21 +177,21 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
-    // fechamento detected
-    if (hasText && detectarFechamento(msg.text)) {
+    // Fechamento
+    if (hasText && detectarFechamento(mensagemCliente)) {
       const texto = `🔔 *Sinal de fechamento detectado*\n\nO cliente *${cliente}* indicou fechamento.`;
-      if (await auditarAlerta("fechamento", cliente, vendedorRaw, texto, msg.text)) {
+      if (await auditarAlerta("fechamento", cliente, vendedorRaw, texto, mensagemCliente)) {
         await enviarMensagem(vendedorNum, texto);
       }
     }
 
-    // attachment crítico
+    // Notification de attachment (imagem, documento ou áudio original)
     if (hasAttach) {
       const tipo = msg.attachments[0].type === "audio" ? "Áudio"
                  : msg.attachments[0].type === "image" ? "Imagem"
                  : "Documento";
       const texto = `📎 *${tipo} recebido de ${cliente}*\n\nValide o conteúdo e confirme itens do orçamento.`;
-      if (await auditarAlerta("attachment", cliente, vendedorRaw, texto, "[anexo]")) {
+      if (await auditarAlerta("attachment", cliente, vendedorRaw, texto, mensagemCliente)) {
         await enviarMensagem(vendedorNum, texto);
       }
     }
