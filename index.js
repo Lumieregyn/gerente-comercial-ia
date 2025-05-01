@@ -1,20 +1,21 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
+const { OpenAI } = require("openai");
 require("dotenv").config();
-const app = express();
 
-// Body parsers with rawBody capture
+const app = express();
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// In-memory state to dedupe alerts
+const alertState = {}; // key: `${cliente}_${vendedor}`, value: last nível enviado
+
 app.use(bodyParser.json({
-  verify: (req, res, buf, encoding) => {
-    req.rawBody = buf.toString(encoding || "utf8");
-  }
+  verify: (req, res, buf, encoding) => { req.rawBody = buf.toString(encoding || "utf8"); }
 }));
 app.use(bodyParser.urlencoded({
   extended: true,
-  verify: (req, res, buf, encoding) => {
-    req.rawBody = buf.toString(encoding || "utf8");
-  }
+  verify: (req, res, buf, encoding) => { req.rawBody = buf.toString(encoding || "utf8"); }
 }));
 
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
@@ -26,46 +27,37 @@ const VENDEDORES = {
 };
 
 const MENSAGENS = {
-  alerta1: (cliente, vendedor) =>
+  alerta1: (c, v) =>
     `⚠️ *Alerta de Atraso - Orçamento*\n\n` +
-    `O cliente *${cliente}* ainda não teve retorno após 6h úteis.\n` +
-    `Vendedor responsável: *${vendedor}*.\n\n` +
-    `Por favor, retome o contato imediatamente!`,
-  alerta2: (cliente, vendedor) =>
+    `Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\n` +
+    `Por favor, retome o atendimento!`,
+  alerta2: (c, v) =>
     `⏰ *Segundo Alerta - Orçamento em Espera*\n\n` +
-    `O cliente *${cliente}* continua sem resposta após 12h úteis.\n` +
-    `Vendedor: *${vendedor}*.`,
-  alertaFinal: (cliente, vendedor) =>
-    `‼️ *Último Alerta (18h úteis)*\n\n` +
-    `Cliente *${cliente}* não teve retorno mesmo após 18h úteis.\n` +
-    `Vendedor: *${vendedor}*\n\n` +
-    `Você tem 10 minutos para responder esta mensagem.`,
-  alertaGestores: (cliente, vendedor) =>
-    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\n` +
-    `Cliente *${cliente}* segue sem retorno após 18h úteis.\n` +
-    `Responsável: *${vendedor}*\n\n` +
-    `⚠️ Por favor, verificar esse caso com urgência.`
+    `Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 12h úteis.\n` +
+    `Providencie retorno imediato!`,
+  alertaFinal: (c, v) =>
+    `🚨 *Último Alerta (18h úteis)*\n\n` +
+    `Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 18h úteis.\n` +
+    `Você tem 10 minutos para responder ou será escalado à gestão.`,
+  alertaGestores: (c, v) =>
+    `🚨 *Alerta Crítico*\n\n` +
+    `O cliente *${c}* aguardou orçamento 18h úteis e não houve resposta de *${v}*.\n` +
+    `Providências urgentes!`
 };
 
 function horasUteisEntreDatas(inicio, fim) {
-  const start = new Date(inicio);
-  const end = new Date(fim);
-  let horas = 0;
-  const current = new Date(start);
-  while (current < end) {
-    const h = current.getHours();
-    const d = current.getDay();
-    if (d >= 1 && d <= 5 && h >= 8 && h < 19) {
-      horas++;
-    }
-    current.setHours(current.getHours() + 1);
+  let start = new Date(inicio), end = new Date(fim), horas = 0;
+  while (start < end) {
+    const h = start.getHours(), d = start.getDay();
+    if (d >= 1 && d <= 5 && h >= 8 && h < 19) horas++;
+    start.setHours(start.getHours() + 1);
   }
   return horas;
 }
 
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
-    console.warn(`[ERRO] Número inválido ou ausente: "${numero}"`);
+    console.warn(`[ERRO] Número inválido: ${numero}`);
     return;
   }
   try {
@@ -73,92 +65,115 @@ async function enviarMensagem(numero, texto) {
       number: numero,
       message: texto,
     });
-    console.log(`Mensagem enviada para ${numero}: ${texto}`);
   } catch (err) {
-    console.error("Erro ao enviar mensagem:", err.response?.data || err.message);
+    console.error("Erro ao enviar:", err.response?.data || err.message);
   }
 }
 
-function detectarFechamento(mensagem) {
-  const sinais = ["fechado", "vamos fechar", "então tá combinado", "então tá certo"];
-  return sinais.some(palavra => mensagem.toLowerCase().includes(palavra));
+async function auditarAlerta(tipo, cliente, vendedor, texto) {
+  const prompt = `
+Você é a Gerente Comercial IA da LumièreGyn.
+Contexto: cliente "${cliente}", vendedor "${vendedor}", tipo de alerta: ${tipo}.
+Mensagem proposta:
+"${texto}"
+Responda apenas "SIM" se este alerta deve ser enviado agora, ou "NÃO" caso contrário.
+`.trim();
+  const comp = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [{ role: "user", content: prompt }],
+  });
+  const resp = comp.choices[0].message.content.trim().toUpperCase();
+  return resp.startsWith("SIM");
 }
 
-function contemArquivoCritico(msg) {
-  return Array.isArray(msg.attachments) && msg.attachments.length > 0;
+function detectarFechamento(txt) {
+  const sinais = ["fechado","vamos fechar","então tá combinado","então tá certo"];
+  return sinais.some(s => txt.toLowerCase().includes(s));
 }
 
 app.post("/conversa", async (req, res) => {
   console.log("[RAW BODY]", req.rawBody);
-
   try {
     const payload = req.body?.payload;
-    if (!payload || !payload.user || !payload.attendant) {
-      console.error("[ERRO] Payload incompleto:", req.rawBody);
+    if (!payload?.user || !payload?.attendant) {
       return res.status(400).json({ error: "Payload incompleto." });
     }
-
-    // fallback para 'message' minúsculo ou 'Message' maiúsculo
     const msg = payload.message || payload.Message || {};
     const hasText = !!msg.text;
-    const hasAttach = contemArquivoCritico(msg);
-
+    const hasAttach = Array.isArray(msg.attachments) && msg.attachments.length > 0;
     if (!hasText && !hasAttach) {
-      console.error("[ERRO] Sem texto ou attachments:", req.rawBody);
-      return res.status(400).json({ error: "Payload incompleto." });
+      return res.status(400).json({ error: "Sem texto ou attachments." });
     }
 
-    const nomeCliente = payload.user.Name;
-    const nomeVendedorKey = payload.attendant.Name.toLowerCase().trim();
-    const numeroVendedor = VENDEDORES[nomeVendedorKey];
-
-    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${msg.text || '[attachment]'}"`);
-
-    if (!numeroVendedor) {
-      console.warn(`[ERRO] Vendedor "${payload.attendant.Name}" não mapeado.`);
-      return res.json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
+    const cliente = payload.user.Name;
+    const vendedorRaw = payload.attendant.Name.trim();
+    const key = `${cliente}_${vendedorRaw}`.toLowerCase();
+    const vendedorNum = VENDEDORES[vendedorRaw.toLowerCase()];
+    if (!vendedorNum) {
+      return res.json({ warning: "Vendedor não mapeado." });
     }
 
-    const criadoEm = new Date(msg.CreatedAt || Date.now() - 19 * 60 * 60 * 1000);
-    const agora = new Date();
-    const horas = horasUteisEntreDatas(criadoEm, agora);
+    const timeRaw = msg.CreatedAt || req.body.timestamp;
+    const criadoEm = new Date(timeRaw);
+    const horas = horasUteisEntreDatas(criadoEm, new Date());
+    const last = alertState[key] || 0;
 
-    if (horas >= 18) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, payload.attendant.Name));
-      setTimeout(() => {
-        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, payload.attendant.Name));
-      }, 10 * 60 * 1000);
-    } else if (horas >= 12) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, payload.attendant.Name));
-    } else if (horas >= 6) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, payload.attendant.Name));
+    // 6h
+    if (horas >= 6 && last < 6) {
+      const texto = MENSAGENS.alerta1(cliente, vendedorRaw);
+      if (await auditarAlerta("6h", cliente, vendedorRaw, texto)) {
+        alertState[key] = 6;
+        await enviarMensagem(vendedorNum, texto);
+      }
+    }
+    // 12h
+    else if (horas >= 12 && last < 12) {
+      const texto = MENSAGENS.alerta2(cliente, vendedorRaw);
+      if (await auditarAlerta("12h", cliente, vendedorRaw, texto)) {
+        alertState[key] = 12;
+        await enviarMensagem(vendedorNum, texto);
+      }
+    }
+    // 18h
+    else if (horas >= 18 && last < 18) {
+      const texto = MENSAGENS.alertaFinal(cliente, vendedorRaw);
+      if (await auditarAlerta("18h", cliente, vendedorRaw, texto)) {
+        alertState[key] = 18;
+        await enviarMensagem(vendedorNum, texto);
+        setTimeout(async () => {
+          const t2 = MENSAGENS.alertaGestores(cliente, vendedorRaw);
+          if (await auditarAlerta("18h-gestores", cliente, vendedorRaw, t2)) {
+            await enviarMensagem(GRUPO_GESTORES_ID, t2);
+          }
+        }, 10 * 60 * 1000);
+      }
     }
 
-    if (detectarFechamento(msg.text || "")) {
-      await enviarMensagem(numeroVendedor,
-        `🔔 *Sinal de fechamento detectado*\n\n` +
-        `O cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`
-      );
+    // fechamento detectado
+    if (hasText && detectarFechamento(msg.text)) {
+      const texto = `🔔 *Sinal de fechamento detectado*\n\nO cliente *${cliente}* indicou fechamento.`;
+      if (await auditarAlerta("fechamento", cliente, vendedorRaw, texto)) {
+        await enviarMensagem(vendedorNum, texto);
+      }
     }
 
+    // attachment crítico
     if (hasAttach) {
-      const tipo = msg.attachments[0].type === "audio" ? "🎙️ Áudio"
-                 : msg.attachments[0].type === "image" ? "🖼️ Imagem"
-                 : "📄 Documento";
-      await enviarMensagem(numeroVendedor,
-        `📎 *${tipo} recebido de ${nomeCliente}*\n\n` +
-        `Não se esqueça de validar o conteúdo e confirmar todos os itens do orçamento com o cliente.`
-      );
+      const tipo = msg.attachments[0].type === "audio" ? "Áudio"
+                 : msg.attachments[0].type === "image" ? "Imagem"
+                 : "Documento";
+      const texto = `📎 *${tipo} recebido de ${cliente}*\n\nValide o conteúdo e confirme itens do orçamento.`;
+      if (await auditarAlerta("attachment", cliente, vendedorRaw, texto)) {
+        await enviarMensagem(vendedorNum, texto);
+      }
     }
 
     res.json({ status: "Mensagem processada com sucesso." });
   } catch (err) {
-    console.error("[ERRO] Falha ao processar conversa:", err);
-    res.status(500).json({ error: "Erro interno ao processar a mensagem." });
+    console.error("[ERRO]", err);
+    res.status(500).json({ error: "Erro interno." });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Servidor do Gerente Comercial IA rodando na porta", PORT);
-});
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));

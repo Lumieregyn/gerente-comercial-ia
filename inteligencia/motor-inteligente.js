@@ -1,39 +1,52 @@
-
+const axios = require("axios");
 const { OpenAI } = require("openai");
+const pdf = require("pdf-parse");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function analisarMensagemComIA(nomeCliente, nomeVendedor, mensagem) {
-  if (!mensagem || mensagem.trim().length < 3) return { mensagemFinal: null };
+async function extractPdfText(url) {
+  const response = await axios.get(url, { responseType: "arraybuffer" });
+  const data = await pdf(response.data);
+  return data.text;
+}
 
-  const prompt = `
-Analise a mensagem do cliente ${nomeCliente}: "${mensagem}".
-1. O cliente sinalizou intenção de fechamento?
-2. Existe alguma pendência crítica?
-3. Quais pontos devem ser validados antes de finalizar a venda?
-Se a mensagem não for conclusiva, diga "[IA] Sem alerta necessário para ${nomeVendedor}".
-Se houver alerta, gere um texto com sugestão de ação.
+async function transcribeAudio(url) {
+  const response = await axios.get(url, { responseType: "stream" });
+  const transcription = await openai.audio.transcriptions.create({
+    file: response.data,
+    model: "whisper-1"
+  });
+  return transcription.text;
+}
 
-Formato da resposta:
-[ANÁLISE IA]:
-1. ...
-2. ...
-3. ...
-[IA] Sem alerta necessário para ${nomeVendedor} // OU mensagem de alerta`;
-
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const content = completion.choices[0].message.content;
-    if (content.includes("[IA] Sem alerta")) return { mensagemFinal: null };
-    return { mensagemFinal: `🤖 *Alerta IA:*
-${content}` };
-  } catch (error) {
-    console.error("[ERRO IA]", error.message);
-    return { mensagemFinal: null };
+async function analisarMensagemComIA(payload) {
+  const nomeCliente = payload.user.Name;
+  const msg = payload.message || payload.Message || {};
+  const texto = msg.text || "";
+  let attachmentText = "";
+  const atts = msg.attachments || [];
+  if (atts.length) {
+    const att = atts[0];
+    const url = att.payload?.url;
+    if (att.type === "document" && url) {
+      try { attachmentText = await extractPdfText(url);} catch {}
+    } else if (att.type === "audio" && url) {
+      try { attachmentText = await transcribeAudio(url);} catch {}
+    }
   }
+  const fullText = texto + (attachmentText ? "\n\n" + attachmentText : "");
+  const prompt = `Você é a Gerente Comercial IA da LumièreGyn.
+Analise a mensagem do cliente ${nomeCliente}:
+"${fullText}"
+1. Intenção de fechamento?
+2. Pendências críticas?
+3. Pontos a validar antes de finalizar a venda?
+Retorne apenas "Sem alerta" ou a análise.`;
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [{ role: "user", content: prompt }],
+  });
+  const content = completion.choices[0].message.content;
+  return content.includes("Sem alerta") ? null : content;
 }
 
 module.exports = { analisarMensagemComIA };
