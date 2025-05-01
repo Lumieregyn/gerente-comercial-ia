@@ -8,7 +8,7 @@ const app = express();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // In-memory state to dedupe alerts
-const alertState = {}; // key: `${cliente}_${vendedor}`, value: last nível enviado
+const alertState = {}; // key: `${cliente}_${vendedor}`, value: last threshold sent
 
 app.use(bodyParser.json({
   verify: (req, res, buf, encoding) => { req.rawBody = buf.toString(encoding || "utf8"); }
@@ -57,11 +57,11 @@ function horasUteisEntreDatas(inicio, fim) {
 
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
-    console.warn(`[ERRO] Número inválido: ${numero}`);
+    console.warn(\`[ERRO] Número inválido: \${numero}\`);
     return;
   }
   try {
-    await axios.post(`${process.env.WPP_URL}/send-message`, {
+    await axios.post(\`\${process.env.WPP_URL}/send-message\`, {
       number: numero,
       message: texto,
     });
@@ -70,14 +70,18 @@ async function enviarMensagem(numero, texto) {
   }
 }
 
-async function auditarAlerta(tipo, cliente, vendedor, texto) {
-  const prompt = `
+// Refined auditoria to use dynamic context
+async function auditarAlerta(tipo, cliente, vendedor, texto, mensagemCliente) {
+  const prompt = \`
 Você é a Gerente Comercial IA da LumièreGyn.
-Contexto: cliente "${cliente}", vendedor "${vendedor}", tipo de alerta: ${tipo}.
-Mensagem proposta:
-"${texto}"
-Responda apenas "SIM" se este alerta deve ser enviado agora, ou "NÃO" caso contrário.
-`.trim();
+Última mensagem do cliente \${cliente}:
+"\${mensagemCliente}"
+Fluxo de alerta: \${tipo}.
+Tempo de espera atingiu esse limiar em horas úteis?
+O vendedor ainda não respondeu?
+Use compreensão contextual e semântica para decidir SE o cliente está aguardando orçamento e SE devemos enviar este alerta agora.
+Responda apenas "SIM" ou "NÃO".
+\`.trim();
   const comp = await openai.chat.completions.create({
     model: "gpt-4o",
     messages: [{ role: "user", content: prompt }],
@@ -107,7 +111,7 @@ app.post("/conversa", async (req, res) => {
 
     const cliente = payload.user.Name;
     const vendedorRaw = payload.attendant.Name.trim();
-    const key = `${cliente}_${vendedorRaw}`.toLowerCase();
+    const key = \`\${cliente}_\${vendedorRaw}\`.toLowerCase();
     const vendedorNum = VENDEDORES[vendedorRaw.toLowerCase()];
     if (!vendedorNum) {
       return res.json({ warning: "Vendedor não mapeado." });
@@ -117,42 +121,43 @@ app.post("/conversa", async (req, res) => {
     const criadoEm = new Date(timeRaw);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
     const last = alertState[key] || 0;
+    const mensagemCliente = hasText ? msg.text : "[anexo]";
 
-    // 6h
+    // 6h alert
     if (horas >= 6 && last < 6) {
       const texto = MENSAGENS.alerta1(cliente, vendedorRaw);
-      if (await auditarAlerta("6h", cliente, vendedorRaw, texto)) {
+      if (await auditarAlerta("6h", cliente, vendedorRaw, texto, mensagemCliente)) {
         alertState[key] = 6;
         await enviarMensagem(vendedorNum, texto);
       }
     }
-    // 12h
+    // 12h alert
     else if (horas >= 12 && last < 12) {
       const texto = MENSAGENS.alerta2(cliente, vendedorRaw);
-      if (await auditarAlerta("12h", cliente, vendedorRaw, texto)) {
+      if (await auditarAlerta("12h", cliente, vendedorRaw, texto, mensagemCliente)) {
         alertState[key] = 12;
         await enviarMensagem(vendedorNum, texto);
       }
     }
-    // 18h
+    // 18h alert
     else if (horas >= 18 && last < 18) {
       const texto = MENSAGENS.alertaFinal(cliente, vendedorRaw);
-      if (await auditarAlerta("18h", cliente, vendedorRaw, texto)) {
+      if (await auditarAlerta("18h", cliente, vendedorRaw, texto, mensagemCliente)) {
         alertState[key] = 18;
         await enviarMensagem(vendedorNum, texto);
         setTimeout(async () => {
           const t2 = MENSAGENS.alertaGestores(cliente, vendedorRaw);
-          if (await auditarAlerta("18h-gestores", cliente, vendedorRaw, t2)) {
+          if (await auditarAlerta("18h-gestores", cliente, vendedorRaw, t2, mensagemCliente)) {
             await enviarMensagem(GRUPO_GESTORES_ID, t2);
           }
         }, 10 * 60 * 1000);
       }
     }
 
-    // fechamento detectado
+    // fechamento detected
     if (hasText && detectarFechamento(msg.text)) {
-      const texto = `🔔 *Sinal de fechamento detectado*\n\nO cliente *${cliente}* indicou fechamento.`;
-      if (await auditarAlerta("fechamento", cliente, vendedorRaw, texto)) {
+      const texto = \`🔔 *Sinal de fechamento detectado*\n\nO cliente *\${cliente}* indicou fechamento.\`;
+      if (await auditarAlerta("fechamento", cliente, vendedorRaw, texto, msg.text)) {
         await enviarMensagem(vendedorNum, texto);
       }
     }
@@ -162,8 +167,8 @@ app.post("/conversa", async (req, res) => {
       const tipo = msg.attachments[0].type === "audio" ? "Áudio"
                  : msg.attachments[0].type === "image" ? "Imagem"
                  : "Documento";
-      const texto = `📎 *${tipo} recebido de ${cliente}*\n\nValide o conteúdo e confirme itens do orçamento.`;
-      if (await auditarAlerta("attachment", cliente, vendedorRaw, texto)) {
+      const texto = \`📎 *\${tipo} recebido de \${cliente}*\n\nValide o conteúdo e confirme itens do orçamento.\`;
+      if (await auditarAlerta("attachment", cliente, vendedorRaw, texto, "[anexo]")) {
         await enviarMensagem(vendedorNum, texto);
       }
     }
@@ -176,4 +181,4 @@ app.post("/conversa", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(\`Servidor rodando na porta \${PORT}\`));
