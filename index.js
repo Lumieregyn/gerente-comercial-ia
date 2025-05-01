@@ -61,22 +61,35 @@ app.post("/conversa", async (req, res) => {
     const agora = new Date();
     const horas = horasUteisEntreDatas(criadoEm, agora);
     const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase().trim()];
-
+    const textoLimpo = textoMensagem.trim().toLowerCase();
 
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
+
+    // Filtro: ignorar mensagens curtas ou irrelevantes
+    if (textoLimpo.length <= 4 || ["ok", "oi", "ola", "sim", "não"].includes(textoLimpo)) {
+      console.log(`[IGNORADO] Mensagem irrelevante de ${nomeCliente}: "${textoMensagem}"`);
+      return res.json({ status: "Mensagem ignorada por ser irrelevante." });
+    }
 
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
       return res.json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
     }
 
-    // Análise inteligente com IA
+    // IA só roda se passou pelo filtro
     const resultadoIA = await analisarMensagemComIA(payload);
     console.log("[ANÁLISE IA]:", resultadoIA);
 
-    // Exemplo de alerta simples com IA
-    if (resultadoIA.toLowerCase().includes("pendência") || resultadoIA.toLowerCase().includes("corrigir")) {
+    // IA só envia se detectar recomendação real
+    if (
+      resultadoIA.toLowerCase().includes("corrigir") ||
+      resultadoIA.toLowerCase().includes("falha") ||
+      resultadoIA.toLowerCase().includes("divergência") ||
+      resultadoIA.toLowerCase().includes("recomendo entrar em contato")
+    ) {
       await enviarMensagem(numeroVendedor, `🤖 *Alerta IA:* ${resultadoIA}`);
+    } else {
+      console.log(`[IA] Sem alerta necessário para ${nomeCliente}.`);
     }
 
     res.json({ status: "Mensagem processada com sucesso." });
