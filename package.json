@@ -1,14 +1,16 @@
+
 {
   "name": "gerente-comercial-ia",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-  "openai": "^4.0.0",
-  "axios": "^1.6.8",
-  "dotenv": "^16.3.1",
-  "body-parser": "^1.20.2",
-  "express": "^4.18.2"
+    "axios": "^1.6.8",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "openai": "^4.0.0"
+  }
 }
