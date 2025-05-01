@@ -1,20 +1,28 @@
+// index.js
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
-const FormData = require("form-data");
-const pdfParse = require("pdf-parse");
 const { Configuration, OpenAIApi } = require("openai");
+const pdfParse = require("pdf-parse");
 require("dotenv").config();
 
-// Configuração OpenAI para transcrição
-const openai = new OpenAIApi(new Configuration({ apiKey: process.env.OPENAI_API_KEY }));
-
 const app = express();
-app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.json());
 
-// IDs e mapeamentos
+//
+// Inicializa OpenAI
+//
+const configuration = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+const openai = new OpenAIApi(configuration);
+
+//
+// Configuração de contatos
+//
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 const VENDEDORES = {
   "cindy loren": "5562994671766",
@@ -23,149 +31,198 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-// Mensagens aprovadas
+//
+// Mensagens padronizadas
+//
 const MENSAGENS = {
   alerta1: (c, v) =>
-    `🚨 Primeiro alerta (6h):\n⚠️ Prezado(a) ${v}, informamos que o cliente ${c} encontra-se há 6 horas úteis aguardando o orçamento solicitado.\nSolicitamos atenção para concluir o atendimento o quanto antes.\nAgradecemos pela colaboração.`,
+    `⚠️ *Alerta de Atraso - Orçamento*\n\n` +
+    `Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\n` +
+    `Solicitamos atenção para concluir o atendimento o quanto antes.\n` +
+    `Agradecemos pela colaboração.`,
   alerta2: (c, v) =>
-    `🚨 Segundo alerta (12h):\n⚠️ Prezado(a) ${v}, reforçamos que o cliente ${c} permanece aguardando o orçamento há 12 horas úteis.\nSolicitamos providências imediatas para evitar impacto negativo no atendimento.\nAguardamos seu retorno.`,
+    `⏰ *Segundo Alerta - Orçamento em Espera*\n\n` +
+    `Prezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando o orçamento há 12h úteis.\n` +
+    `Solicitamos providências imediatas.\n` +
+    `Aguardamos seu retorno.`,
   alertaFinal: (c, v) =>
-    `🚨 Último alerta (18h):\n🚨 Prezado(a) ${v}, o cliente ${c} está há 18 horas úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.\nCaso contrário, o atendimento será transferido e a situação será registrada junto à Gerência Comercial IA.`,
+    `🚨 *Último Alerta (18h úteis)*\n\n` +
+    `Prezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\n` +
+    `Você tem 10 minutos para responder esta mensagem. Caso contrário, o atendimento será transferido e registrado junto à Gerência Comercial IA.`,
   alertaGestores: (c, v) =>
-    `🚨 Atenção Gerência Comercial IA:\nO cliente ${c} permaneceu 18 horas sem receber o orçamento solicitado e o vendedor ${v} não respondeu no prazo de 10 minutos.\nProvidências serão tomadas quanto à redistribuição do atendimento.`,
-  fechamentoSinal: (c, v) =>
-    `🔔 Sinal de fechamento detectado\nO cliente ${c} indicou possível fechamento. Reforce o contato e envie o orçamento formal.`,
-  anexosCriticos: (c, tipo) => {
-    const emoji = tipo === 'audio' ? '🎙️' : tipo === 'image' ? '🖼️' : '📄';
-    return `📎 ${emoji} Anexo recebido de ${c}\nNão se esqueça de validar o conteúdo e confirmar todos os itens do orçamento com o cliente.`;
-  }
+    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\n` +
+    `O cliente *${c}* segue sem retorno após 18h úteis. Responsável: *${v}*.\n\n` +
+    `⚠️ Por favor, verificar esse caso com urgência.`
 };
 
-// Cálculo de horas úteis
+//
+// Calcula horas úteis entre duas datas
+//
 function horasUteisEntreDatas(inicio, fim) {
   const start = new Date(inicio);
   const end = new Date(fim);
   let horas = 0;
-  const current = new Date(start);
-  while (current < end) {
-    const h = current.getHours();
-    const d = current.getDay();
-    if (d >= 1 && d <= 5 && h >= 8 && h < 19) horas++;
-    current.setHours(current.getHours() + 1);
+  const cur = new Date(start);
+  while (cur < end) {
+    const dia = cur.getDay();
+    const hora = cur.getHours();
+    if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) horas++;
+    cur.setHours(cur.getHours() + 1);
   }
   return horas;
 }
 
-// Envio de mensagem via WppConnect
+//
+// Envia mensagem via WppConnect
+//
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
-    console.warn(`[ERRO] Número inválido ou ausente: "${numero}"`);
+    console.warn(`[ERRO] Número inválido: "${numero}"`);
     return;
   }
   try {
-    await axios.post(`${process.env.WPP_URL}/send-message`, { number: numero, message: texto });
+    await axios.post(`${process.env.WPP_URL}/send-message`, {
+      number: numero,
+      message: texto,
+    });
     console.log(`Mensagem enviada para ${numero}: ${texto}`);
   } catch (err) {
     console.error("Erro ao enviar mensagem:", err.response?.data || err.message);
   }
 }
 
-// Detecção de intenção de fechamento
-function detectarFechamento(texto) {
-  const sinais = ["fechar", "aprovado", "vamos seguir", "quero esse", "pode seguir"]; 
-  return sinais.some(sig => texto.toLowerCase().includes(sig));
+//
+// Baixa arquivo (imagem, áudio, pdf) e salva localmente
+//
+async function baixarArquivo(url, nomeLocal) {
+  const writer = fs.createWriteStream(nomeLocal);
+  const response = await axios.get(url, { responseType: "stream" });
+  response.data.pipe(writer);
+  return new Promise((res, rej) => {
+    writer.on("finish", res);
+    writer.on("error", rej);
+  });
 }
 
-// Verifica anexos críticos
-function contemArquivoCritico(m) {
-  return ['document', 'image', 'audio', 'file'].includes(m.type);
-}
-
-// Transcrição de áudio via Whisper
+//
+// Transcreve áudio via Whisper
+//
 async function transcreverAudio(url) {
-  const resp = await axios.get(url, { responseType: 'arraybuffer' });
-  const tmp = '/tmp/audio.ogg';
-  fs.writeFileSync(tmp, Buffer.from(resp.data));
-  const form = new FormData();
-  form.append('file', fs.createReadStream(tmp));
-  form.append('model', 'whisper-1');
-  const result = await openai.createTranscription(form, { headers: form.getHeaders() });
-  return result.data.text;
+  const tmpPath = path.join(__dirname, "tmp_audio.ogg");
+  await baixarArquivo(url, tmpPath);
+  const resp = await openai.createTranscription(
+    fs.createReadStream(tmpPath),
+    "whisper-1"
+  );
+  fs.unlinkSync(tmpPath);
+  return resp.data.text;
 }
 
-// Leitura de PDF
-async function lerPDF(url) {
-  const resp = await axios.get(url, { responseType: 'arraybuffer' });
-  const data = await pdfParse(resp.data);
-  return data.text;
+//
+// Extrai texto de PDF
+//
+async function extrairPdf(url) {
+  const tmpPath = path.join(__dirname, "tmp.pdf");
+  await baixarArquivo(url, tmpPath);
+  const data = fs.readFileSync(tmpPath);
+  const pdf = await pdfParse(data);
+  fs.unlinkSync(tmpPath);
+  return pdf.text;
 }
 
-// Rota principal de conversa
+//
+// Detecta intenção de fechamento
+//
+function detectarFechamento(texto) {
+  const sinais = [
+    "vamos fechar",
+    "pode seguir",
+    "aprovado",
+    "quero esse modelo",
+    "orçamento aprovado"
+  ];
+  return sinais.some(s => texto.toLowerCase().includes(s));
+}
+
+//
+// Rota de webhook
+//
 app.post("/conversa", async (req, res) => {
   try {
-    const { payload, message } = req.body;
-    if (!payload || !payload.user || !payload.attendant || (!message.text && !message.attachments)) {
-      console.error('[ERRO] Payload incompleto:', req.body);
-      return res.status(400).json({ error: 'Payload incompleto.' });
+    const body = req.body;
+    const p = body.payload;
+    if (!p || !p.user || !p.attendant) {
+      console.warn("[ERRO] Payload incompleto:", JSON.stringify(body));
+      return res.status(400).json({ error: "Payload incompleto." });
     }
 
-    const cliente = payload.user.Name;
-    const vendedorNome = payload.attendant.Name.trim().toLowerCase();
-    const vendedorNumero = VENDEDORES[vendedorNome];
-    const texto = message.text || '';
-    const criadoEm = new Date(message.CreatedAt || Date.now());
-    const agora = new Date();
-    const horas = horasUteisEntreDatas(criadoEm, agora);
+    const cliente = p.user.Name;
+    const vendedorNome = p.attendant.Name.trim().toLowerCase();
+    const msg = p.message;
+    const texto = msg.text || "";
+    const tipo = msg.type || "text";
+    const criado = msg.CreatedAt ? new Date(msg.CreatedAt) : new Date(Date.now() - 19*3600*1000);
+    const horas = horasUteisEntreDatas(criado, new Date());
 
-    console.log(`[LOG] Nova mensagem recebida de ${cliente}: "${texto || '[attachment]' }"`);
+    console.log(`[LOG] Nova mensagem recebida de ${cliente}: "${texto || "[attachment]"}"`);
 
-    // Se anexo crítico: transcrever/ler e alertar vendedor
-    if (message.attachments?.length) {
-      for (const att of message.attachments) {
-        let conteudo = '';
-        if (att.type === 'audio') {
-          const txt = await transcreverAudio(att.payload.url);
-          console.log('[TRANSCRIÇÃO]', txt);
-          conteudo = txt;
-          await enviarMensagem(vendedorNumero, `🤖 Transcrição de áudio de ${cliente}: ${txt}`);
-        } else if (att.type === 'file' || att.type === 'document') {
-          const pdfText = await lerPDF(att.payload.url);
-          console.log('[PDF TEXT]', pdfText.substring(0, 200));
-          await enviarMensagem(vendedorNumero, `🤖 Conteúdo do PDF de ${cliente}: ${pdfText.substring(0,200)}...`);
-        }
-        // alerta de anexo
-        await enviarMensagem(vendedorNumero, MENSAGENS.anexosCriticos(cliente, att.type));
-      }
+    const numeroVend = VENDEDORES[vendedorNome];
+    if (!numeroVend) {
+      console.warn(`[ERRO] Vendedor "${p.attendant.Name}" não está mapeado.`);
+      return res.json({ warning: "Vendedor não mapeado." });
     }
 
-    // Se não for vendedor mapeado
-    if (!vendedorNumero) {
-      console.warn(`[ERRO] Vendedor "${payload.attendant.Name}" não está mapeado.`);
-      return res.json({ warning: 'Vendedor não mapeado. Nenhuma ação executada.' });
+    // primeiro, se for áudio: transcreve e loga
+    if (tipo === "audio") {
+      const txt = await transcreverAudio(msg.payload.url);
+      console.log("[TRANSCRIÇÃO]", txt);
+      // passa agora o texto transcrito para IA, se quiser
     }
 
-    // Fluxo de alertas de orçamento
+    // se for PDF, extrai texto e loga
+    if (tipo === "file" && msg.payload.url.toLowerCase().endsWith(".pdf")) {
+      const conteudo = await extrairPdf(msg.payload.url);
+      console.log("[PDF EXTRAÍDO]", conteudo.slice(0,200) + "…");
+      // pode passar para análise de IA
+    }
+
+    // alerta de orçamento
     if (horas >= 18) {
-      await enviarMensagem(vendedorNumero, MENSAGENS.alertaFinal(cliente, payload.attendant.Name));
-      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(cliente, payload.attendant.Name)), 10*60*1000);
+      await enviarMensagem(numeroVend, MENSAGENS.alertaFinal(cliente, p.attendant.Name));
+      setTimeout(() => {
+        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(cliente, p.attendant.Name));
+      }, 10*60*1000);
     } else if (horas >= 12) {
-      await enviarMensagem(vendedorNumero, MENSAGENS.alerta2(cliente, payload.attendant.Name));
+      await enviarMensagem(numeroVend, MENSAGENS.alerta2(cliente, p.attendant.Name));
     } else if (horas >= 6) {
-      await enviarMensagem(vendedorNumero, MENSAGENS.alerta1(cliente, payload.attendant.Name));
+      await enviarMensagem(numeroVend, MENSAGENS.alerta1(cliente, p.attendant.Name));
     }
 
-    // Sinal de fechamento + checklist
+    // sinal de fechamento
     if (detectarFechamento(texto)) {
-      await enviarMensagem(vendedorNumero, MENSAGENS.fechamentoSinal(cliente, payload.attendant.Name));
-      // TODO: implementar checklist completo após sinal de fechamento
+      await enviarMensagem(
+        numeroVend,
+        `🔔 *Sinal de fechamento detectado*\n\nO cliente *${cliente}* indicou possível fechamento. Reforce o contato e formalize o orçamento.`
+      );
     }
 
-    return res.json({ status: 'Processado com sucesso.' });
+    // anexos críticos (imagem, arquivo não-PDF)
+    if (["image","document","file"].includes(tipo) && !msg.payload.url.toLowerCase().endsWith(".pdf")) {
+      const label = tipo === "image" ? "🖼️ Imagem" : "📎 Arquivo";
+      await enviarMensagem(
+        numeroVend,
+        `${label} recebido de *${cliente}*.\nNão esqueça de validar o conteúdo e confirmar todos os itens do orçamento.`
+      );
+    }
+
+    return res.json({ status: "ok" });
   } catch (err) {
-    console.error('[ERRO] Falha ao processar conversa:', err);
-    return res.status(500).json({ error: 'Erro interno.' });
+    console.error("[ERRO] Falha ao processar conversa:", err);
+    return res.status(500).json({ error: "Erro interno." });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor do Gerente Comercial IA rodando na porta ${PORT}`));
+app.listen(PORT, () =>
+  console.log("Servidor do Gerente Comercial IA rodando na porta", PORT)
+);
