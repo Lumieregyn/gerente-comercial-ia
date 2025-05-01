@@ -57,7 +57,7 @@ function horasUteisEntreDatas(inicio, fim) {
 
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
-    console.warn(\`[ERRO] Número inválido: \${numero}\`);
+    console.warn("[ERRO] Número inválido: " + numero);
     return;
   }
   try {
