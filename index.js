@@ -1,5 +1,4 @@
 
-// index.js com lógica completa dos blocos aprovados, IA robusta e análise crítica
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -13,8 +12,7 @@ const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
   "emily sequeira": "5562981704171",
-  "fernando fonseca": "5562985293035",
-  "marcelle menezes": "5562985299828"
+  "fernando fonseca": "5562985293035"
 };
 
 function isMensagemCritica(texto) {
@@ -130,21 +128,23 @@ app.post("/conversa", async (req, res) => {
       return res.json({ status: "Ignorado pela IA." });
     }
 
-    if (horas >= 18) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorOriginal));
-      setTimeout(() => {
-        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedorOriginal));
-      }, 10 * 60 * 1000);
-    } else if (horas >= 12) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedorOriginal));
-    } else if (horas >= 6) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedorOriginal));
-    }
-
-    if (detectarFechamento(textoMensagem)) {
+    const fechamentoDetectado = detectarFechamento(textoMensagem);
+    if (fechamentoDetectado) {
+      console.log(`[IA] Sinal de fechamento detectado. Nenhum alerta de orçamento será enviado.`);
       await enviarMensagem(numeroVendedor, `🔔 *Sinal de fechamento detectado*
 
 O cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`);
+    } else {
+      if (horas >= 18) {
+        await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorOriginal));
+        setTimeout(() => {
+          enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedorOriginal));
+        }, 10 * 60 * 1000);
+      } else if (horas >= 12) {
+        await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedorOriginal));
+      } else if (horas >= 6) {
+        await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedorOriginal));
+      }
     }
 
     if (contemArquivoCritico(payload)) {
