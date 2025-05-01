@@ -74,27 +74,35 @@ function detectarFechamento(mensagem) {
 }
 
 function contemArquivoCritico(payload) {
-  return ["document", "image", "audio"].includes(payload.message?.type);
+  // Check for attachments array
+  return payload.message?.attachments?.length > 0;
 }
 
 app.post("/conversa", async (req, res) => {
-  const raw = req.rawBody;
+  // Log raw body for debugging
+  console.log("[RAW BODY]", req.rawBody);
+
   try {
     const payload = req.body?.payload;
-    if (!payload || !payload.user || !payload.attendant || !payload.message?.text) {
-      console.error("[ERRO] Payload incompleto:", raw);
+    const hasText = !!payload.message?.text;
+    const hasAttach = payload.message?.attachments?.length > 0;
+
+    if (!payload || !payload.user || !payload.attendant || (!hasText && !hasAttach)) {
+      console.error("[ERRO] Payload incompleto:", req.rawBody);
       return res.status(400).json({ error: "Payload incompleto." });
     }
+
     const nomeCliente = payload.user.Name;
-    const nomeVendedor = payload.attendant.Name.toLowerCase();
-    const textoMensagem = payload.message.text;
-    const tipoMensagem = payload.message.type || "text";
+    const nomeVendedor = payload.attendant.Name.toLowerCase().trim();
+    const textoMensagem = payload.message.text || "";
+    const tipoMensagem = payload.message.type || (hasAttach ? payload.message.attachments[0].type : "text");
     const criadoEm = new Date(payload.message.CreatedAt || Date.now() - 19 * 60 * 60 * 1000);
     const agora = new Date();
     const horas = horasUteisEntreDatas(criadoEm, agora);
     const numeroVendedor = VENDEDORES[nomeVendedor];
 
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
+
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${payload.attendant.Name}" não está mapeado.`);
       return res.json({ warning: "Vendedor não mapeado. Nenhuma mensagem enviada." });
@@ -115,11 +123,13 @@ app.post("/conversa", async (req, res) => {
       await enviarMensagem(numeroVendedor,
         `🔔 *Sinal de fechamento detectado*\n\nO cliente *${nomeCliente}* indicou possível fechamento. Reforce o contato e envie o orçamento formal.`);
     }
+
     if (contemArquivoCritico(payload)) {
       const tipo = tipoMensagem === "audio"? "🎙️ Áudio" : tipoMensagem === "image"? "🖼️ Imagem": "📄 Documento";
       await enviarMensagem(numeroVendedor,
         `📎 *${tipo} recebido de ${nomeCliente}*\n\nNão se esqueça de validar o conteúdo e confirmar todos os itens do orçamento com o cliente.`);
     }
+
     res.json({ status: "Mensagem processada com sucesso." });
   } catch (err) {
     console.error("[ERRO] Falha ao processar conversa:", err);
@@ -128,4 +138,6 @@ app.post("/conversa", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Servidor do Gerente Comercial IA rodando na porta", PORT));
+app.listen(PORT, () => {
+  console.log("Servidor do Gerente Comercial IA rodando na porta", PORT);
+});
