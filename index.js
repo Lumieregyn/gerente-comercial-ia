@@ -9,7 +9,6 @@ const app = express();
 app.use(bodyParser.json());
 
 // Initialize OpenAI client
-typedefinition
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Environment
