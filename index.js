@@ -11,6 +11,7 @@ const app = express();
 app.use(bodyParser.json());
 
 // Initialize OpenAI client
+typescript
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Environment
@@ -117,6 +118,13 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
 
 app.post('/conversa', async (req, res) => {
   try {
+    // Ignore non-message events
+    const eventType = req.body.type;
+    if (eventType !== 'message-received') {
+      console.log(`[INFO] Ignorando evento: ${eventType}`);
+      return res.json({ status: 'Evento ignorado' });
+    }
+
     const { payload } = req.body;
     if (!payload || !payload.user || !payload.message) {
       console.error('[ERRO] Payload incompleto:', req.body);
@@ -124,10 +132,9 @@ app.post('/conversa', async (req, res) => {
     }
 
     const nomeCliente = payload.user.Name;
-    // trim para remover espaços extras
     const nomeVendedor = (payload.attendant?.Name || '').trim();
 
-    // Detecção de anexo
+    // Detect attachment type
     const attachment = Array.isArray(payload.message.attachments)
       ? payload.message.attachments[0]
       : null;
@@ -139,7 +146,7 @@ app.post('/conversa', async (req, res) => {
 
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
 
-    // Contexto extra: áudio ou PDF
+    // Additional context: audio or PDF
     let contextoExtra = '';
     if (tipo === 'audio' && attachment.payload?.url) {
       const txt = await transcreverAudio(attachment.payload.url);
@@ -156,29 +163,28 @@ app.post('/conversa', async (req, res) => {
       }
     }
 
-    // Só alerta se AI detectar que cliente aguarda orçamento
+    // Only alert if AI detects waiting
     const awaiting = await isWaitingForQuote(nomeCliente, textoMensagem, contextoExtra);
     if (!awaiting) {
       console.log('[INFO] Cliente não aguarda orçamento. Sem alertas.');
       return res.json({ status: 'Sem ação necessária.' });
     }
 
-    // Tempo de espera
-    const criadoEm = new Date(payload.message.CreatedAt || payload.timestamp);
+    // Compute wait time
+    const criadoEm = new Date(payload.message.CreatedAt || req.body.timestamp);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
 
-    // Obter número do vendedor
+    // Get seller number
     const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
       return res.json({ warning: 'Vendedor não mapeado.' });
     }
 
-    // Dispara alertas conforme horas
+    // Send alerts
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
-      // após 10 minutos alerta gestores
-      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor)), 10*60*1000);
+      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor)), 10 * 60 * 1000);
     } else if (horas >= 12) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedor));
     } else if (horas >= 6) {
@@ -194,3 +200,4 @@ app.post('/conversa', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Servidor do Gerente Comercial IA rodando na porta', PORT));
+```
