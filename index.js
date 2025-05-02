@@ -1,10 +1,9 @@
-// index.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
-const vision = require("@google-cloud/vision");
+const vision = require('@google-cloud/vision');
 const { OpenAI } = require("openai");
 require("dotenv").config();
 
@@ -27,7 +26,7 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-// Templates de alerta
+// Templates de mensagens de alerta
 const MENSAGENS = {
   alerta1: (c, v) =>
     `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.\nAgradecemos pela colaboração.`,
@@ -48,9 +47,7 @@ function horasUteisEntreDatas(inicio, fim) {
   while (cur < end) {
     const dia = cur.getDay();
     const hora = cur.getHours();
-    if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) {
-      horas++;
-    }
+    if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) horas++;
     cur.setHours(cur.getHours() + 1);
   }
   return horas;
@@ -70,138 +67,132 @@ async function enviarMensagem(numero, texto) {
   }
 }
 
-// Transcrição de áudio
+// Transcreve áudio usando Whisper
 async function transcreverAudio(url) {
   try {
-    const resp = await axios.get(url, { responseType: "arraybuffer" });
+    const resp = await axios.get(url, { responseType: 'arraybuffer' });
     const form = new FormData();
-    form.append("file", Buffer.from(resp.data), { filename: "audio.ogg", contentType: "audio/ogg" });
-    form.append("model", "whisper-1");
-    const result = await axios.post("https://api.openai.com/v1/audio/transcriptions", form, {
+    form.append('file', Buffer.from(resp.data), { filename: 'audio.ogg', contentType: 'audio/ogg' });
+    form.append('model', 'whisper-1');
+    const result = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
       headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
     });
     return result.data.text;
   } catch (err) {
-    console.error("[ERRO] Transcrição de áudio falhou:", err.response?.data || err.message);
+    console.error('[ERRO] Transcrição de áudio falhou:', err.response?.data || err.message);
     return null;
   }
 }
 
-// Extração de texto de PDF
+// Extrai texto de PDF
 async function extrairTextoPDF(url) {
   try {
-    const resp = await axios.get(url, { responseType: "arraybuffer" });
+    const resp = await axios.get(url, { responseType: 'arraybuffer' });
     const data = await pdfParse(resp.data);
     return data.text;
   } catch (err) {
-    console.error("[ERRO] PDF parse falhou:", err.message || err);
+    console.error('[ERRO] PDF parse falhou:', err.message || err);
     return null;
   }
 }
 
-// Análise de imagem com Google Cloud Vision
+// Análise de imagem usando Google Cloud Vision
 async function analisarImagem(url) {
   try {
-    const resp = await axios.get(url, { responseType: "arraybuffer" });
-    const [result] = await visionClient.documentTextDetection({ image: { content: resp.data } });
-    return result.fullTextAnnotation?.text || null;
+    const imageResp = await axios.get(url, { responseType: 'arraybuffer' });
+    const [textDetections, labelDetections] = await Promise.all([
+      visionClient.textDetection({ image: { content: imageResp.data } }),
+      visionClient.labelDetection({ image: { content: imageResp.data } })
+    ]);
+    const texto = textDetections[0].fullTextAnnotation?.text || '';
+    const labels = labelDetections[0].labelAnnotations?.map(l => l.description).join(', ');
+    return { texto, labels };
   } catch (err) {
-    console.error("[ERRO] Análise de imagem falhou:", err);
+    console.error('[ERRO] Análise de imagem falhou:', err.message || err);
     return null;
   }
 }
 
-// Detecta se cliente aguarda orçamento
+// Detecta se cliente aguarda orçamento usando GPT-4o
 async function isWaitingForQuote(cliente, mensagem, contexto) {
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: 'gpt-4o-mini',
       messages: [
-        { role: "system", content: "Você é Gerente Comercial IA, detecte se o cliente aguarda orçamento." },
-        {
-          role: "user",
-          content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? "\nContexto: " + contexto : ""}`
-        }
+        { role: 'system', content: 'Você é Gerente Comercial IA, detecte se o cliente aguarda orçamento.' },
+        { role: 'user', content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? '\nContexto extra: ' + contexto : ''}` }
       ]
     });
     const reply = completion.choices[0].message.content.toLowerCase();
-    return reply.includes("sim") || reply.includes("aguard") || reply.includes("precisa");
+    return reply.includes('sim') || reply.includes('aguard') || reply.includes('precisa');
   } catch (err) {
-    console.error("[ERRO] Análise de intenção falhou:", err);
+    console.error('[ERRO] Análise de intenção falhou:', err);
     return false;
   }
 }
 
-// Rota principal
-app.post("/conversa", async (req, res) => {
+// Webhook principal
+app.post('/conversa', async (req, res) => {
   try {
     const { payload } = req.body;
-    if (!payload || !payload.user || !payload.message || !payload.channel) {
-      console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
-      return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
+    const user      = payload.user;
+    const msg       = payload.message || payload.Message;
+    const attendant = payload.attendant;
+    const channel   = payload.channel;
+
+    if (!user || !msg || !attendant || !channel) {
+      console.error('[ERRO] Payload incompleto ou evento não suportado:', req.body);
+      return res.status(400).json({ error: 'Payload incompleto ou evento não suportado' });
     }
 
-    const { user, message, attendant } = payload;
-    const nomeCliente = user.Name;
+    const nomeCliente  = user.Name;
     const nomeVendedor = attendant.Name;
-    const texto = message.text || message.caption || "[attachment]";
+    const texto        = msg.text || msg.caption || '[attachment]';
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // Monta contexto extra (áudio, PDF, imagem)
-    let contextoExtra = "";
-    if (message.type === "audio" && message.payload?.url) {
-      const t = await transcreverAudio(message.payload.url);
-      if (t) { console.log("[TRANSCRICAO]", t); contextoExtra += t; }
+    let contextoExtra = '';
+    if (msg.type === 'audio' && msg.payload?.url) {
+      const txt = await transcreverAudio(msg.payload.url);
+      if (txt) { console.log('[TRANSCRICAO]', txt); contextoExtra += txt; }
     }
-    if (
-      message.type === "file" &&
-      message.payload?.url &&
-      message.payload.FileName?.toLowerCase().endsWith(".pdf")
-    ) {
-      const pdfText = await extrairTextoPDF(message.payload.url);
-      if (pdfText) { console.log("[PDF-TEXTO]", pdfText); contextoExtra += "\n" + pdfText; }
+    if (msg.type === 'file' && msg.payload?.url && msg.payload.FileName?.toLowerCase().endsWith('.pdf')) {
+      const pdfText = await extrairTextoPDF(msg.payload.url);
+      if (pdfText) { console.log('[PDF-TEXTO]', pdfText); contextoExtra += '\n' + pdfText; }
     }
-    if (message.type === "image" && message.payload?.url) {
-      const imgText = await analisarImagem(message.payload.url);
-      if (imgText) { console.log("[IMAGEM-ANALISE]", imgText); contextoExtra += "\n" + imgText; }
+    if (msg.type === 'image' && msg.payload?.url) {
+      const imgRes = await analisarImagem(msg.payload.url);
+      if (imgRes) { console.log('[IMAGEM-ANALISE]', imgRes); contextoExtra += '\n' + JSON.stringify(imgRes); }
     }
 
-    // Verifica se aguarda orçamento
     const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
     if (!aguardando) {
-      console.log("[INFO] Cliente não aguarda orçamento. Sem alertas.");
-      return res.json({ status: "Sem ação necessária." });
+      console.log('[INFO] Cliente não aguarda orçamento. Sem alertas.');
+      return res.json({ status: 'Sem ação necessária.' });
     }
 
-    // Calcula horas úteis
-    const criadoEm = new Date(message.CreatedAt || payload.timestamp);
-    const horas = horasUteisEntreDatas(criadoEm, new Date());
-
-    const numeroVendedor = VENDEDORES[nomeVendedor.trim().toLowerCase()];
+    const criadoEm = new Date(msg.CreatedAt || payload.timestamp || Date.now());
+    const horas    = horasUteisEntreDatas(criadoEm, new Date());
+    const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
-      return res.json({ warning: "Vendedor não mapeado." });
+      return res.json({ warning: 'Vendedor não mapeado.' });
     }
 
-    // Envia alertas conforme o tempo
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
-      setTimeout(
-        () => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor)),
-        10 * 60 * 1000
-      );
+      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor)), 10 * 60 * 1000);
     } else if (horas >= 12) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedor));
     } else if (horas >= 6) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedor));
     }
 
-    res.json({ status: "Processado" });
+    res.json({ status: 'Processado' });
   } catch (err) {
-    console.error("[ERRO] Falha ao processar:", err);
-    res.status(500).json({ error: "Erro interno." });
+    console.error('[ERRO] Falha ao processar:', err);
+    res.status(500).json({ error: 'Erro interno.' });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Servidor rodando na porta", PORT));
+app.listen(PORT, () => console.log('Servidor rodando na porta', PORT));
