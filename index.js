@@ -92,14 +92,20 @@ async function extrairTextoPDF(url) {
   }
 }
 
-// --- Análise de imagem (Vision Beta) ---
+// --- Descrição de imagem via GPT-4o-mini (multimodal) ---
 async function analisarImagem(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
-    const base64 = Buffer.from(resp.data).toString("base64");
-    // Atenção: ajuste se seu SDK exigir outro método
-    const vision = await openai.vision.predict({ data: base64 });
-    return vision;
+    const b64 = Buffer.from(resp.data).toString("base64");
+    // Envia base64 como mensagem multimodal
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Você é Gerente Comercial IA, descreva em detalhes o conteúdo desta imagem." },
+        { role: "user", content: `data:image/*;base64,${b64}` }
+      ]
+    });
+    return completion.choices[0].message.content;
   } catch (err) {
     console.error("[ERRO] Análise de imagem falhou:", err);
     return null;
@@ -135,10 +141,11 @@ app.post("/conversa", async (req, res) => {
 
     // Compatibilidade message vs Message
     const message = payload.message || payload.Message;
-    const user    = payload.user;
-    const attendant = payload.attendant;
-    const nomeCliente = user.Name || user.name;
-    const nomeVendedor = attendant?.Name || attendant?.name;
+    const user = payload.user;
+    const attendant = payload.attendant || {};
+    // Fallback de nome
+    const nomeCliente = user.Name || user.name || user.Phone || "Cliente";
+    const nomeVendedor = attendant.Name || attendant.name || "";
 
     // Texto puro ou placeholder
     const texto = message.text || message.caption || "[attachment]";
@@ -146,7 +153,7 @@ app.post("/conversa", async (req, res) => {
 
     let contextoExtra = "";
 
-    // Se houver attachments (áudio, PDF, imagem)
+    // Processa attachments
     const atts = Array.isArray(message.attachments) ? message.attachments : [];
     for (const att of atts) {
       const url = att.payload?.url;
@@ -158,7 +165,6 @@ app.post("/conversa", async (req, res) => {
       }
 
       if (att.type === "file") {
-        // nome pode vir em fileName ou FileName
         const fn = att.fileName || att.FileName || "";
         if (fn.toLowerCase().endsWith(".pdf")) {
           const pdfText = await extrairTextoPDF(url);
@@ -167,19 +173,19 @@ app.post("/conversa", async (req, res) => {
       }
 
       if (att.type === "image") {
-        const imgRes = await analisarImagem(url);
-        if (imgRes) { console.log("[IMAGEM-ANALISE]", imgRes); contextoExtra += "\n" + JSON.stringify(imgRes); }
+        const desc = await analisarImagem(url);
+        if (desc) { console.log("[IMAGEM-ANALISE]", desc); contextoExtra += "\n" + desc; }
       }
     }
 
-    // Detecta se o cliente realmente aguarda orçamento
+    // Verifica intenção de orçamento
     const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
     if (!aguardando) {
       console.log("[INFO] Cliente não aguarda orçamento. Sem alertas.");
       return res.json({ status: "Sem ação necessária." });
     }
 
-    // Calcula atraso em horas úteis
+    // Calcula atraso
     const criadoEm = new Date(message.CreatedAt || req.body.timestamp || Date.now());
     const horas = horasUteisEntreDatas(criadoEm, new Date());
     const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase().trim()];
@@ -188,7 +194,7 @@ app.post("/conversa", async (req, res) => {
       return res.json({ warning: "Vendedor não mapeado." });
     }
 
-    // Dispara alertas conforme atraso
+    // Dispara alertas
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
       setTimeout(
