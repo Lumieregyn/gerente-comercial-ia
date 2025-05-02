@@ -3,12 +3,14 @@ const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
 const { OpenAI } = require("openai");
+const pdfParse = require("pdf-parse");
 require("dotenv").config();
 
 const app = express();
 app.use(bodyParser.json());
 
 // Initialize OpenAI client
+typeof OpenAI;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Environment
@@ -81,12 +83,24 @@ async function transcreverAudio(url) {
   }
 }
 
+// Extract text from PDF
+async function extrairTextoPDF(url) {
+  try {
+    const resp = await axios.get(url, { responseType: 'arraybuffer' });
+    const data = await pdfParse(resp.data);
+    return data.text;
+  } catch (err) {
+    console.error('[ERRO] Leitura de PDF falhou:', err.message);
+    return null;
+  }
+}
+
 // Analyze image via OpenAI Vision Beta
 async function analisarImagem(url, contexto) {
   try {
     const resp = await openai.chat.completions.create({
       model: 'gpt-4o-vision-beta',
-      modalities: ['vision','text'],
+      modalities: ['vision', 'text'],
       messages: [
         { role: 'system', content: 'Você é Gerente Comercial IA e analisa fotos de produtos para divergências.' },
         { role: 'user', content: `Contexto: ${contexto}` },
@@ -122,7 +136,7 @@ app.post('/conversa', async (req, res) => {
   try {
     const payload = req.body.payload;
     if (!payload || !payload.user || !payload.attendant || !payload.message) {
-      console.error('[ERRO] Payload incompleto:', req.body);
+      console.error('[ERRO] Payload incompleto ou evento não suportado:', req.body);
       return res.status(400).json({ error: 'Payload incompleto.' });
     }
     const nomeCliente = payload.user.Name;
@@ -140,9 +154,20 @@ app.post('/conversa', async (req, res) => {
         contextoExtra = txt;
       }
     }
+    // Extract PDF text
+    if (tipo === 'file' && payload.message.payload?.url) {
+      const pdfText = await extrairTextoPDF(payload.message.payload.url);
+      if (pdfText) {
+        console.log('[PDF-TEXTO]', pdfText);
+        contextoExtra += (contextoExtra ? '\n' : '') + pdfText;
+      }
+    }
     // Analyze image
     if (tipo === 'image' && payload.message.payload?.url) {
-      const descr = await analisarImagem(payload.message.payload.url, `${textoMensagem}${contextoExtra ? ' Contexto extra: ' + contextoExtra : ''}`);
+      const descr = await analisarImagem(
+        payload.message.payload.url,
+        `${textoMensagem}${contextoExtra ? ' Contexto extra: ' + contextoExtra : ''}`
+      );
       if (descr) {
         console.log('[IMAGEM-ANALISE]', descr);
         contextoExtra += (contextoExtra ? '\n' : '') + descr;
@@ -155,9 +180,9 @@ app.post('/conversa', async (req, res) => {
       return res.json({ status: 'Sem ação necessária.' });
     }
 
-    const criadoEm = new Date(payload.message.CreatedAt || payload.timestamp || Date.now() - 19*3600*1000);
+    const criadoEm = new Date(payload.message.CreatedAt || payload.timestamp || Date.now() - 19 * 3600 * 1000);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
-    const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
+    const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase().trim()];
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
       return res.json({ warning: 'Vendedor não mapeado.' });
@@ -165,7 +190,7 @@ app.post('/conversa', async (req, res) => {
 
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
-      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor)), 10*60*1000);
+      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor)), 10 * 60 * 1000);
     } else if (horas >= 12) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedor));
     } else if (horas >= 6) {
