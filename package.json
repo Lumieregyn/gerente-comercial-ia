@@ -1,7 +1,7 @@
 {
   "name": "gerente-comercial-ia",
   "version": "3.3.1",
-  "description": "Serviço de alertas inteligentes via WhatsApp para equipe comercial, utilizando GPT-4o, WppConnect e processamento de áudio/PDF/Imagens.",
+  "description": "Servico de alertas inteligentes via WhatsApp para equipe comercial, utilizando GPT-4o, WppConnect e processamento de audio/PDF/Imagens.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -16,4 +16,5 @@
     "openai": "^4.4.0",
     "pdf-parse": "^1.1.1"
   },
-  "license": "MIT
+  "license": "MIT"
+}
