@@ -1,5 +1,3 @@
-// index.js
-
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -72,9 +70,7 @@ async function transcreverAudio(url) {
   try {
     const resp = await axios.get(url, { responseType: 'arraybuffer' });
     const form = new FormData();
-    form.append('file', Buffer.from(resp.data), {
-      filename: 'audio.ogg', contentType: 'audio/ogg'
-    });
+    form.append('file', Buffer.from(resp.data), { filename: 'audio.ogg', contentType: 'audio/ogg' });
     form.append('model', 'whisper-1');
     const result = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
       headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
@@ -93,7 +89,7 @@ async function extrairTextoPDF(url) {
     const data = await pdfParse(resp.data);
     return data.text;
   } catch (err) {
-    console.error('[ERRO] Extração de PDF falhou:', err.response?.data || err.message);
+    console.error('[ERRO] Extração de PDF falhou:', err.message);
     return null;
   }
 }
@@ -123,37 +119,37 @@ app.post('/conversa', async (req, res) => {
       console.error('[ERRO] Payload incompleto:', req.body);
       return res.status(400).json({ error: 'Payload incompleto.' });
     }
-
     const nomeCliente = payload.user.Name;
-    const nomeVendedor = payload.attendant.Name;
-    let textoMensagem = payload.message.text || payload.message.caption || '';
-    let contextoExtra = '';
+    const nomeVendedor = payload.attendant.Name.trim();
+    const msg = payload.message;
+    // log raw attachments
+    const attachments = msg.attachments || [];
+    console.log('[ANEXOS RECEBIDOS]', attachments);
 
-    // Handle attachments (audio, PDF, image, etc.)
-    const attachments = payload.message.attachments || [];
-    if ((!textoMensagem || textoMensagem === '') && attachments.length > 0) {
-      const at = attachments[0];
-      const url = at.payload?.url;
-      if (at.type === 'audio' && url) {
-        const transcript = await transcreverAudio(url);
-        if (transcript) {
-          console.log('[TRANSCRICAO]', transcript);
-          contextoExtra += transcript;
-          textoMensagem = '[audio]';
+    // determine base text
+    const textoMensagem = msg.text || msg.caption || '[attachment]';
+    const tipo = msg.type || (attachments.length ? attachments[0].type : 'text');
+    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
+
+    let contextoExtra = '';
+    // process attachments
+    for (const att of attachments) {
+      const url = att.payload?.url;
+      if (!url) continue;
+      if (att.type === 'audio') {
+        const txt = await transcreverAudio(url);
+        if (txt) {
+          console.log('[TRANSCRICAO]', txt);
+          contextoExtra += txt + '\n';
         }
-      } else if (at.type === 'file' && url) {
-        const pdfText = await extrairTextoPDF(url);
-        if (pdfText) {
-          console.log('[PDF-TEXTO]', pdfText);
-          contextoExtra += pdfText;
-          textoMensagem = '[file]';
+      } else if (att.type === 'file' && att.FileName?.toLowerCase().endsWith('.pdf')) {
+        const pdfTxt = await extrairTextoPDF(url);
+        if (pdfTxt) {
+          console.log('[PDF-TEXTO]', pdfTxt);
+          contextoExtra += pdfTxt + '\n';
         }
-      } else {
-        textoMensagem = '[attachment]';
       }
     }
-
-    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
 
     // Only trigger quote alerts if AI says client awaits quote
     const awaiting = await isWaitingForQuote(nomeCliente, textoMensagem, contextoExtra);
@@ -189,4 +185,4 @@ app.post('/conversa', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor do Gerente Comercial IA rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log('Servidor do Gerente Comercial IA rodando na porta', PORT));
