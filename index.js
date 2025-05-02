@@ -1,4 +1,3 @@
-// index.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -6,20 +5,18 @@ const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
 const vision = require("@google-cloud/vision");
 const { OpenAI } = require("openai");
+
 require("dotenv").config();
 
 const app = express();
 app.use(bodyParser.json());
 
-// clients
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const visionClient = new vision.ImageAnnotatorClient();
 
-// env
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
-// mapeamento de vendedores
 const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
@@ -27,7 +24,6 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-// templates de mensagem
 const MENSAGENS = {
   alerta1: (c, v) =>
     `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
@@ -45,30 +41,24 @@ function horasUteisEntreDatas(inicio, fim) {
   let horas = 0;
   const cur = new Date(start);
   while (cur < end) {
-    const dia = cur.getDay(), hora = cur.getHours();
+    const dia = cur.getDay();
+    const hora = cur.getHours();
     if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) horas++;
     cur.setHours(cur.getHours() + 1);
   }
   return horas;
 }
 
-function normalizeNome(nome = "") {
-  return nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
+function normalizeNome(nome) {
+  return nome?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 }
 
 async function enviarMensagem(numero, texto) {
-  if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
-    console.warn(`[ERRO] Número inválido: ${numero}`);
-    return;
-  }
+  if (!numero || !/^[0-9]{11,13}$/.test(numero)) return;
   try {
     await axios.post(`${WPP_URL}/send-message`, { number: numero, message: texto });
   } catch (err) {
-    console.error("Erro ao enviar mensagem:", err.response?.data || err.message);
+    console.error("Erro ao enviar mensagem:", err.message || err);
   }
 }
 
@@ -78,14 +68,12 @@ async function transcreverAudio(url) {
     const form = new FormData();
     form.append("file", Buffer.from(resp.data), { filename: "audio.ogg", contentType: "audio/ogg" });
     form.append("model", "whisper-1");
-    const result = await axios.post(
-      "https://api.openai.com/v1/audio/transcriptions",
-      form,
-      { headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } }
-    );
+    const result = await axios.post("https://api.openai.com/v1/audio/transcriptions", form, {
+      headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
+    });
     return result.data.text;
   } catch (err) {
-    console.error("[ERRO] Transcrição de áudio falhou:", err.message);
+    console.error("[ERRO] Transcrição de áudio falhou:", err.message || err);
     return null;
   }
 }
@@ -96,18 +84,19 @@ async function extrairTextoPDF(url) {
     const data = await pdfParse(resp.data);
     return data.text;
   } catch (err) {
-    console.error("[ERRO] PDF parse falhou:", err.message);
+    console.error("[ERRO] PDF parse falhou:", err.message || err);
     return null;
   }
 }
 
+// *** Função ajustada para não tratar a API key como caminho de arquivo ***
 async function analisarImagem(url) {
   try {
-    // Faz o download da imagem como buffer
+    // Baixa o conteúdo da imagem
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const buffer = resp.data;
 
-    // Envia o conteúdo para o Vision API
+    // Envia o conteúdo binário para o Vision API
     const [result] = await visionClient.textDetection({
       image: { content: buffer }
     });
@@ -115,7 +104,7 @@ async function analisarImagem(url) {
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
   } catch (err) {
-    console.error("[ERRO] Análise de imagem falhou:", err.message);
+    console.error("[ERRO] Análise de imagem falhou:", err.message || err);
     return null;
   }
 }
@@ -125,20 +114,14 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        {
-          role: "system",
-          content: "Você é Gerente Comercial IA: detecte se cliente está aguardando orçamento."
-        },
-        {
-          role: "user",
-          content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? "\nContexto: " + contexto : ""}`
-        }
+        { role: "system", content: "Você é um Gerente Comercial IA que identifica se um cliente está aguardando um orçamento." },
+        { role: "user", content: `Cliente: ${cliente}\nMensagem: ${mensagem}\nContexto: ${contexto || ""}` }
       ]
     });
     const reply = completion.choices[0].message.content.toLowerCase();
     return reply.includes("sim") || reply.includes("aguard");
   } catch (err) {
-    console.error("[ERRO] Análise de intenção falhou:", err.message);
+    console.error("[ERRO] Análise de intenção falhou:", err.message || err);
     return false;
   }
 }
@@ -146,41 +129,33 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
-    if (
-      !payload ||
-      !payload.user ||
-      !(payload.message || payload.Message) ||
-      !payload.channel
-    ) {
+    const message = payload.Message || payload.message;
+    const user = payload.user;
+    const vendedorRaw = payload.attendant?.Name || "";
+
+    if (!message || !user) {
       console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
       return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
     }
 
-    // unifica Message / message
-    const message = payload.message || payload.Message;
-    const user = payload.user;
-    const attendant = payload.attendant || {};
-
     const nomeCliente = user.Name || "Cliente";
     const texto = message.text || message.caption || "[attachment]";
+    const nomeVendedor = normalizeNome(vendedorRaw);
+    const numeroVendedor = VENDEDORES[nomeVendedor];
+
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // prepara contexto extra
     let contextoExtra = "";
-    if (Array.isArray(message.attachments)) {
+    if (message.attachments?.length) {
       for (const a of message.attachments) {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
           if (t) {
             console.log("[TRANSCRICAO]", t);
-            contextoExtra += "\n" + t;
+            contextoExtra += t;
           }
         }
-        if (
-          a.type === "file" &&
-          a.payload?.url &&
-          a.FileName?.toLowerCase().endsWith(".pdf")
-        ) {
+        if (a.type === "file" && a.payload?.url && a.payload.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
             console.log("[PDF-TEXTO]", t);
@@ -197,49 +172,38 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
-    // verifica se cliente aguarda orçamento
     const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
     if (!aguardando) {
       console.log("[INFO] Cliente não aguarda orçamento. Sem alertas.");
       return res.json({ status: "Sem ação necessária." });
     }
 
-    // mapeia vendedor
-    const nomeVendedorRaw = attendant.Name || "";
-    const keyVend = normalizeNome(nomeVendedorRaw);
-    const numeroVendedor = VENDEDORES[keyVend];
     if (!numeroVendedor) {
-      console.warn(`[ERRO] Vendedor "${nomeVendedorRaw}" não está mapeado.`);
+      console.warn(`[ERRO] Vendedor "${vendedorRaw}" não está mapeado.`);
       return res.json({ warning: "Vendedor não mapeado." });
     }
 
-    // calcula horas úteis
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
 
-    // dispara alertas
     if (horas >= 18) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorRaw));
-      setTimeout(
-        () =>
-          enviarMensagem(
-            GRUPO_GESTORES_ID,
-            MENSAGENS.alertaGestores(nomeCliente, nomeVendedorRaw)
-          ),
+      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, vendedorRaw));
+      setTimeout(() =>
+        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, vendedorRaw)),
         10 * 60 * 1000
       );
     } else if (horas >= 12) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedorRaw));
+      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, vendedorRaw));
     } else if (horas >= 6) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedorRaw));
+      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, vendedorRaw));
     }
 
     res.json({ status: "Processado" });
   } catch (err) {
-    console.error("[ERRO] Falha ao processar:", err.message);
+    console.error("[ERRO] Falha ao processar:", err.message || err);
     res.status(500).json({ error: "Erro interno." });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log("Servidor rodando na porta", PORT));
