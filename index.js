@@ -91,6 +91,23 @@ async function extrairTextoPdf(url) {
   }
 }
 
+// Descreve imagem via GPT
+async function descreverImagem(url) {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'Você é assistente que descreve imagens.' },
+        { role: 'user', content: `Descreva esta imagem: ${url}` }
+      ]
+    });
+    return completion.choices[0].message.content;
+  } catch (err) {
+    console.error('[ERRO] Análise de imagem falhou:', err);
+    return null;
+  }
+}
+
 // Verifica se cliente aguarda orçamento via IA
 async function isWaitingForQuote(cliente, mensagem, contexto) {
   try {
@@ -112,36 +129,53 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
 // Rota principal
 app.post('/conversa', async (req, res) => {
   const body = req.body;
-  if (!body.payload || body.payload.type !== 'message-received') {
+  const payload = body.payload;
+  if (!payload || payload.type !== 'message-received') {
     console.error('[ERRO] Payload incompleto ou evento não suportado:', body);
     return res.status(400).json({ error: 'Payload incompleto ou evento ignorado.' });
   }
   try {
-    const { user, attendant, message, timestamp } = body.payload;
+    const user = payload.user;
+    const attendant = payload.attendant;
+    const msg = payload.message || payload.Message;
+    const timestamp = payload.timestamp;
+
     const nomeCliente = user.Name;
     const nomeVendedor = attendant.Name?.trim();
-    const tipo = message.type;
-    const texto = message.text || message.caption || {
-      audio: '[AUDIO]',
-      image: '[IMAGE]',
-      file: '[FILE]'
-    }[tipo] || '[ATTACHMENT]';
+
+    // determina texto e tipo
+    let tipo = 'text';
+    let texto = msg.text || msg.caption || '';
+    if (!texto && Array.isArray(msg.attachments) && msg.attachments.length > 0) {
+      const att = msg.attachments[0];
+      tipo = att.type;
+      texto = att.caption || `[${att.type.toUpperCase()}]`;
+      msg.payload = att.payload;
+      msg.filename = att.FileName || att.filename;
+    }
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // Contexto extra: áudio ou PDF
+    // Contexto extra: multimodal
     let contextoExtra = '';
-    if (tipo === 'audio' && message.payload?.url) {
-      const txtAudio = await transcreverAudio(message.payload.url);
+    if (tipo === 'audio' && msg.payload?.url) {
+      const txtAudio = await transcreverAudio(msg.payload.url);
       if (txtAudio) {
         console.log('[TRANSCRICAO]', txtAudio);
-        contextoExtra = txtAudio;
+        contextoExtra += txtAudio;
       }
     }
-    if (tipo === 'file' && message.payload?.url && message.payload.filename?.toLowerCase().endsWith('.pdf')) {
-      const txtPdf = await extrairTextoPdf(message.payload.url);
+    if (tipo === 'file' && msg.payload?.url && msg.filename?.toLowerCase().endsWith('.pdf')) {
+      const txtPdf = await extrairTextoPdf(msg.payload.url);
       if (txtPdf) {
         console.log('[PDF-TEXTO]', txtPdf.substring(0, 500));
         contextoExtra += txtPdf;
+      }
+    }
+    if (tipo === 'image' && msg.payload?.url) {
+      const descImg = await descreverImagem(msg.payload.url);
+      if (descImg) {
+        console.log('[IMAGEM-ANALISE]', descImg);
+        contextoExtra += descImg;
       }
     }
 
@@ -153,7 +187,7 @@ app.post('/conversa', async (req, res) => {
     }
 
     // Cálculo de horas úteis
-    const criadoEm = new Date(message.createdAt || timestamp);
+    const criadoEm = new Date(msg.createdAt || timestamp);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
     const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
     if (!numeroVendedor) {
