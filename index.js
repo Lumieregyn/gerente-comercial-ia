@@ -103,11 +103,11 @@ async function extrairTextoPDF(url) {
 
 async function analisarImagem(url) {
   try {
-    // 1) baixa o conteúdo da imagem
+    // Faz o download da imagem como buffer
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const buffer = resp.data;
 
-    // 2) envia o buffer diretamente ao Vision API
+    // Envia o conteúdo para o Vision API
     const [result] = await visionClient.textDetection({
       image: { content: buffer }
     });
