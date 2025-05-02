@@ -4,14 +4,12 @@ const axios = require("axios");
 const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
 const { OpenAI } = require("openai");
-
 require("dotenv").config();
 
 const app = express();
 app.use(bodyParser.json());
 
-// Initialize OpenAI client
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Initialize OpenAI client\const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Environment variables
 const WPP_URL = process.env.WPP_URL;
@@ -95,17 +93,10 @@ async function extrairTextoPDF(url) {
   }
 }
 
-// Analyze image via OpenAI Vision beta
+// Stub for image analysis
 async function analisarImagem(url) {
-  try {
-    const resp = await axios.get(url, { responseType: 'arraybuffer' });
-    const base64 = Buffer.from(resp.data).toString('base64');
-    const vision = await openai.vision.predict({ data: base64 });
-    return vision;
-  } catch (err) {
-    console.error('[ERRO] Análise de imagem falhou:', err);
-    return null;
-  }
+  console.warn('[WARN] Análise de imagem não implementada.');
+  return null;
 }
 
 // Detect if client awaits quote using GPT-4o
@@ -137,21 +128,25 @@ app.post('/conversa', async (req, res) => {
     const { user, message, attendant } = payload;
     const nomeCliente = user.Name;
     const nomeVendedor = attendant.Name;
-    const texto = message.text || message.caption || '[attachment]';
+    const texto = message.text || '';
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     let contextoExtra = '';
-    if (message.type === 'audio' && message.payload?.url) {
-      const t = await transcreverAudio(message.payload.url);
-      if (t) { console.log('[TRANSCRICAO]', t); contextoExtra += t; }
-    }
-    if (message.type === 'file' && message.payload?.url && message.payload.FileName?.toLowerCase().endsWith('.pdf')) {
-      const pdfText = await extrairTextoPDF(message.payload.url);
-      if (pdfText) { console.log('[PDF-TEXTO]', pdfText); contextoExtra += '\n' + pdfText; }
-    }
-    if (message.type === 'image' && message.payload?.url) {
-      const imgRes = await analisarImagem(message.payload.url);
-      if (imgRes) { console.log('[IMAGEM-ANALISE]', imgRes); contextoExtra += '\n' + JSON.stringify(imgRes); }
+    if (Array.isArray(message.attachments)) {
+      for (const att of message.attachments) {
+        const url = att.payload?.url;
+        if (!url) continue;
+        if (att.type === 'audio') {
+          const t = await transcreverAudio(url);
+          if (t) { console.log('[TRANSCRICAO]', t); contextoExtra += t + '\n'; }
+        } else if (att.type === 'file' && att.FileName?.toLowerCase().endsWith('.pdf')) {
+          const pdfText = await extrairTextoPDF(url);
+          if (pdfText) { console.log('[PDF-TEXTO]', pdfText); contextoExtra += pdfText + '\n'; }
+        } else if (att.type === 'image') {
+          const imgRes = await analisarImagem(url);
+          if (imgRes) { console.log('[IMAGEM-ANALISE]', imgRes); contextoExtra += JSON.stringify(imgRes) + '\n'; }
+        }
+      }
     }
 
     const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
@@ -160,7 +155,7 @@ app.post('/conversa', async (req, res) => {
       return res.json({ status: 'Sem ação necessária.' });
     }
 
-    const criadoEm = new Date(payload.message.CreatedAt || payload.timestamp);
+    const criadoEm = new Date(payload.timestamp);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
     const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
     if (!numeroVendedor) {
