@@ -9,10 +9,8 @@ require("dotenv").config();
 const app = express();
 app.use(bodyParser.json());
 
-// --- Inicializa o cliente OpenAI ---
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// --- Inicializa OpenAI ---
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // --- Variáveis de ambiente ---
 const WPP_URL = process.env.WPP_URL;
@@ -26,7 +24,7 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-// --- Templates de mensagem ---
+// --- Templates de alerta ---
 const MENSAGENS = {
   alerta1: (c, v) =>
     `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.\nAgradecemos pela colaboração.`,
@@ -38,22 +36,20 @@ const MENSAGENS = {
     `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*\n\n⚠️ Por favor, verificar esse caso com urgência.`
 };
 
-// --- Conta horas úteis entre duas datas ---
+// --- Calcula horas úteis ---
 function horasUteisEntreDatas(inicio, fim) {
   const start = new Date(inicio);
   const end = new Date(fim);
-  let horas = 0;
-  const cur = new Date(start);
+  let horas = 0, cur = new Date(start);
   while (cur < end) {
-    const dia = cur.getDay();
-    const hora = cur.getHours();
-    if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) horas++;
+    const dia = cur.getDay(), h = cur.getHours();
+    if (dia >= 1 && dia <= 5 && h >= 8 && h < 19) horas++;
     cur.setHours(cur.getHours() + 1);
   }
   return horas;
 }
 
-// --- Envia mensagem via WPPConnect ---
+// --- Envia WhatsApp ---
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
     console.warn(`[ERRO] Número inválido: ${numero}`);
@@ -67,118 +63,132 @@ async function enviarMensagem(numero, texto) {
   }
 }
 
-// --- Transcreve áudio com Whisper ---
+// --- Transcrição de áudio ---
 async function transcreverAudio(url) {
   try {
-    const resp = await axios.get(url, { responseType: 'arraybuffer' });
+    const resp = await axios.get(url, { responseType: "arraybuffer" });
     const form = new FormData();
-    form.append('file', Buffer.from(resp.data), { filename: 'audio.ogg', contentType: 'audio/ogg' });
-    form.append('model', 'whisper-1');
-    const result = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
+    form.append("file", Buffer.from(resp.data), { filename: "audio.ogg", contentType: "audio/ogg" });
+    form.append("model", "whisper-1");
+    const result = await axios.post("https://api.openai.com/v1/audio/transcriptions", form, {
       headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
     });
     return result.data.text;
   } catch (err) {
-    console.error('[ERRO] Transcrição de áudio falhou:', err.response?.data || err.message);
+    console.error("[ERRO] Transcrição de áudio falhou:", err.response?.data || err.message);
     return null;
   }
 }
 
-// --- Extrai texto de PDF via pdf-parse ---
+// --- Extração de texto de PDF ---
 async function extrairTextoPDF(url) {
   try {
-    const resp = await axios.get(url, { responseType: 'arraybuffer' });
+    const resp = await axios.get(url, { responseType: "arraybuffer" });
     const data = await pdfParse(resp.data);
     return data.text;
   } catch (err) {
-    console.error('[ERRO] PDF parse falhou:', err.message || err);
+    console.error("[ERRO] PDF parse falhou:", err.message || err);
     return null;
   }
 }
 
-// --- Analisa imagem com OpenAI Vision beta (stub) ---
+// --- Análise de imagem (Vision Beta) ---
 async function analisarImagem(url) {
   try {
-    const resp = await axios.get(url, { responseType: 'arraybuffer' });
-    const base64 = Buffer.from(resp.data).toString('base64');
-    // visão beta: ajusta segundo sua versão do cliente OpenAI
+    const resp = await axios.get(url, { responseType: "arraybuffer" });
+    const base64 = Buffer.from(resp.data).toString("base64");
+    // Atenção: ajuste se seu SDK exigir outro método
     const vision = await openai.vision.predict({ data: base64 });
     return vision;
   } catch (err) {
-    console.error('[ERRO] Análise de imagem falhou:', err);
+    console.error("[ERRO] Análise de imagem falhou:", err);
     return null;
   }
 }
 
-// --- Detecta se o cliente aguarda orçamento via GPT-4o ---
+// --- Detecta espera de orçamento ---
 async function isWaitingForQuote(cliente, mensagem, contexto) {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: "gpt-4o-mini",
       messages: [
-        { role: 'system', content: 'Você é Gerente Comercial IA, detecte se o cliente aguarda orçamento.' },
-        { role: 'user', content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? '\nContexto: ' + contexto : ''}` }
+        { role: "system", content: "Você é Gerente Comercial IA, detecte se o cliente aguarda orçamento." },
+        { role: "user", content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? "\nContexto: " + contexto : ""}` }
       ]
     });
     const reply = completion.choices[0].message.content.toLowerCase();
-    return reply.includes('sim') || reply.includes('aguard') || reply.includes('precisa');
+    return reply.includes("sim") || reply.includes("aguard") || reply.includes("precisa");
   } catch (err) {
-    console.error('[ERRO] Análise de intenção falhou:', err);
+    console.error("[ERRO] Análise de intenção falhou:", err);
     return false;
   }
 }
 
-// --- Endpoint principal de webhook ---
-app.post('/conversa', async (req, res) => {
+// --- Rota principal ---
+app.post("/conversa", async (req, res) => {
   try {
-    const { payload } = req.body;
-    if (!payload || !payload.user || !payload.message || !payload.channel) {
-      console.error('[ERRO] Payload incompleto ou evento não suportado:', req.body);
-      return res.status(400).json({ error: 'Payload incompleto ou evento não suportado' });
+    const payload = req.body.payload;
+    if (!payload || !payload.user || !(payload.message || payload.Message)) {
+      console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
+      return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
     }
-    const { user, message, attendant } = payload;
-    const nomeCliente = user.Name;
-    const nomeVendedor = attendant.Name;
-    const texto = message.text || message.caption || '[attachment]';
+
+    // Compatibilidade message vs Message
+    const message = payload.message || payload.Message;
+    const user    = payload.user;
+    const attendant = payload.attendant;
+    const nomeCliente = user.Name || user.name;
+    const nomeVendedor = attendant?.Name || attendant?.name;
+
+    // Texto puro ou placeholder
+    const texto = message.text || message.caption || "[attachment]";
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     let contextoExtra = "";
 
-    // áudio
-    if (message.type === "audio" && message.payload?.url) {
-      const t = await transcreverAudio(message.payload.url);
-      if (t) { console.log("[TRANSCRICAO]", t); contextoExtra += t; }
-    }
-    // PDF
-    if (message.type === "file"
-        && message.payload?.url
-        && message.payload.FileName?.toLowerCase().endsWith(".pdf")) {
-      const pdfText = await extrairTextoPDF(message.payload.url);
-      if (pdfText) { console.log("[PDF-TEXTO]", pdfText); contextoExtra += "\n" + pdfText; }
-    }
-    // imagem
-    if (message.type === "image" && message.payload?.url) {
-      const imgRes = await analisarImagem(message.payload.url);
-      if (imgRes) { console.log("[IMAGEM-ANALISE]", imgRes); contextoExtra += "\n" + JSON.stringify(imgRes); }
+    // Se houver attachments (áudio, PDF, imagem)
+    const atts = Array.isArray(message.attachments) ? message.attachments : [];
+    for (const att of atts) {
+      const url = att.payload?.url;
+      if (!url) continue;
+
+      if (att.type === "audio") {
+        const t = await transcreverAudio(url);
+        if (t) { console.log("[TRANSCRICAO]", t); contextoExtra += t; }
+      }
+
+      if (att.type === "file") {
+        // nome pode vir em fileName ou FileName
+        const fn = att.fileName || att.FileName || "";
+        if (fn.toLowerCase().endsWith(".pdf")) {
+          const pdfText = await extrairTextoPDF(url);
+          if (pdfText) { console.log("[PDF-TEXTO]", pdfText); contextoExtra += "\n" + pdfText; }
+        }
+      }
+
+      if (att.type === "image") {
+        const imgRes = await analisarImagem(url);
+        if (imgRes) { console.log("[IMAGEM-ANALISE]", imgRes); contextoExtra += "\n" + JSON.stringify(imgRes); }
+      }
     }
 
-    // detecção de espera de orçamento
+    // Detecta se o cliente realmente aguarda orçamento
     const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
     if (!aguardando) {
       console.log("[INFO] Cliente não aguarda orçamento. Sem alertas.");
       return res.json({ status: "Sem ação necessária." });
     }
 
-    // cálculo de horas úteis
-    const criadoEm = new Date(payload.message.CreatedAt || payload.timestamp);
+    // Calcula atraso em horas úteis
+    const criadoEm = new Date(message.CreatedAt || req.body.timestamp || Date.now());
     const horas = horasUteisEntreDatas(criadoEm, new Date());
-    const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
+    const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase().trim()];
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
       return res.json({ warning: "Vendedor não mapeado." });
     }
 
-    // disparo de alertas
+    // Dispara alertas conforme atraso
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
       setTimeout(
@@ -191,10 +201,10 @@ app.post('/conversa', async (req, res) => {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedor));
     }
 
-    res.json({ status: "Processado" });
+    return res.json({ status: "Processado" });
   } catch (err) {
     console.error("[ERRO] Falha ao processar:", err);
-    res.status(500).json({ error: "Erro interno." });
+    return res.status(500).json({ error: "Erro interno." });
   }
 });
 
