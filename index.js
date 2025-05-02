@@ -2,7 +2,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
-const pdfParse = require("pdf-parse");
+const pdfParse = require('pdf-parse');
 const { OpenAI } = require("openai");
 require("dotenv").config();
 
@@ -12,11 +12,11 @@ app.use(bodyParser.json());
 // Initialize OpenAI client
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Environment
+// Environment variables
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
-// Map of sellers (Name lowercased)
+// Map of sellers (lowercase)
 const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
@@ -24,7 +24,7 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-// Approved alert messages
+// Predefined alert messages
 const MENSAGENS = {
   alerta1: (cliente, vendedor) =>
     `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${vendedor}*, o cliente *${cliente}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.\nAgradecemos pela colaboração.`,
@@ -89,12 +89,12 @@ async function extrairTextoPDF(url) {
     const data = await pdfParse(resp.data);
     return data.text;
   } catch (err) {
-    console.error('[ERRO] Extração de PDF falhou:', err.message);
+    console.error('[ERRO] Leitura de PDF falhou:', err);
     return null;
   }
 }
 
-// Determine if client is awaiting quote via AI
+// Determine if client awaits quote via AI
 async function isWaitingForQuote(cliente, mensagem, contexto) {
   try {
     const completion = await openai.chat.completions.create({
@@ -114,70 +114,70 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
 
 app.post('/conversa', async (req, res) => {
   try {
-    const payload = req.body.payload;
+    const body = req.body;
+    const payload = body.payload;
     if (!payload || !payload.user || !payload.attendant || !payload.message) {
-      console.error('[ERRO] Payload incompleto:', req.body);
+      console.error('[ERRO] Payload incompleto:', body);
       return res.status(400).json({ error: 'Payload incompleto.' });
     }
-    const nomeCliente = payload.user.Name;
-    const nomeVendedor = payload.attendant.Name.trim();
+
+    const cliente = payload.user.Name;
+    const vendedor = payload.attendant.Name.trim();
     const msg = payload.message;
-    // log raw attachments
-    const attachments = msg.attachments || [];
-    console.log('[ANEXOS RECEBIDOS]', attachments);
+    let textoMensagem = msg.text || msg.caption || '[attachment]';
+    const tipo = msg.type || 'text';
+    console.log(`[LOG] Nova mensagem recebida de ${cliente}: "${textoMensagem}"`);
 
-    // determine base text
-    const textoMensagem = msg.text || msg.caption || '[attachment]';
-    const tipo = msg.type || (attachments.length ? attachments[0].type : 'text');
-    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
-
+    // Handle attachments
     let contextoExtra = '';
-    // process attachments
-    for (const att of attachments) {
-      const url = att.payload?.url;
-      if (!url) continue;
-      if (att.type === 'audio') {
-        const txt = await transcreverAudio(url);
-        if (txt) {
-          console.log('[TRANSCRICAO]', txt);
-          contextoExtra += txt + '\n';
+    if (msg.attachments && msg.attachments.length) {
+      console.log('[ANEXOS RECEBIDOS]', msg.attachments);
+      for (const a of msg.attachments) {
+        if (a.type === 'audio' && a.payload?.url) {
+          const trans = await transcreverAudio(a.payload.url);
+          if (trans) {
+            console.log('[TRANSCRICAO]', trans);
+            contextoExtra += trans + ' ';
+          }
         }
-      } else if (att.type === 'file' && att.FileName?.toLowerCase().endsWith('.pdf')) {
-        const pdfTxt = await extrairTextoPDF(url);
-        if (pdfTxt) {
-          console.log('[PDF-TEXTO]', pdfTxt);
-          contextoExtra += pdfTxt + '\n';
+        if (a.type === 'file' && a.payload?.url && a.FileName?.toLowerCase().endsWith('.pdf')) {
+          const pdfText = await extrairTextoPDF(a.payload.url);
+          if (pdfText) {
+            console.log('[PDF-TEXTO]', pdfText);
+            contextoExtra += pdfText + ' ';
+          }
         }
       }
     }
 
-    // Only trigger quote alerts if AI says client awaits quote
-    const awaiting = await isWaitingForQuote(nomeCliente, textoMensagem, contextoExtra);
+    // AI intent detection
+    const awaiting = await isWaitingForQuote(cliente, textoMensagem, contextoExtra.trim());
     if (!awaiting) {
       console.log('[INFO] Cliente não aguarda orçamento. Sem alertas.');
       return res.json({ status: 'Sem ação necessária.' });
     }
 
-    // timing
-    const criadoEm = new Date(payload.message.CreatedAt || payload.timestamp || Date.now() - 19*3600*1000);
+    // Timing logic
+    const criadoEm = new Date(payload.message.CreatedAt || payload.timestamp);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
-    const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
-    if (!numeroVendedor) {
-      console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
+    const numVend = VENDEDORES[vendedor.toLowerCase()];
+    if (!numVend) {
+      console.warn(`[ERRO] Vendedor "${vendedor}" não está mapeado.`);
       return res.json({ warning: 'Vendedor não mapeado.' });
     }
 
     // Alerts by hours
     if (horas >= 18) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
-      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor)), 10*60*1000);
+      await enviarMensagem(numVend, MENSAGENS.alertaFinal(cliente, vendedor));
+      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(cliente, vendedor)), 10*60*1000);
     } else if (horas >= 12) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedor));
+      await enviarMensagem(numVend, MENSAGENS.alerta2(cliente, vendedor));
     } else if (horas >= 6) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedor));
+      await enviarMensagem(numVend, MENSAGENS.alerta1(cliente, vendedor));
     }
 
     res.json({ status: 'Processado' });
+
   } catch (err) {
     console.error('[ERRO] Falha ao processar:', err);
     res.status(500).json({ error: 'Erro interno.' });
@@ -185,4 +185,4 @@ app.post('/conversa', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Servidor do Gerente Comercial IA rodando na porta', PORT));
+app.listen(PORT, () => console.log(`Servidor do Gerente Comercial IA rodando na porta ${PORT}`));
