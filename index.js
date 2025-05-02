@@ -1,10 +1,11 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const axios = require("axios");
-const FormData = require("form-data");
-const pdfParse = require('pdf-parse');
-const { OpenAI } = require("openai");
-require("dotenv").config();
+const express = require('express');
+const bodyParser = require('body-parser');
+const axios = require('axios');
+const FormData = require('form-data');
+const pdf = require('pdf-parse');
+const fs = require('fs');
+const { OpenAI } = require('openai');
+require('dotenv').config();
 
 const app = express();
 app.use(bodyParser.json());
@@ -16,16 +17,16 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
-// Map of sellers (lowercase)
+// Sellers mapping
 const VENDEDORES = {
-  "cindy loren": "5562994671766",
-  "ana clara martins": "5562991899053",
-  "emily sequeira": "5562981704171",
-  "fernando fonseca": "5562985293035"
+  'cindy loren': '5562994671766',
+  'ana clara martins': '5562991899053',
+  'emily sequeira': '5562981704171',
+  'fernando fonseca': '5562985293035'
 };
 
-// Predefined alert messages
-const MENSAGENS = {
+// Approved alert messages
+default const MENSAGENS = {
   alerta1: (cliente, vendedor) =>
     `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${vendedor}*, o cliente *${cliente}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.\nAgradecemos pela colaboração.`,
   alerta2: (cliente, vendedor) =>
@@ -36,7 +37,7 @@ const MENSAGENS = {
     `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${cliente}* segue sem retorno após 18h úteis.\nResponsável: *${vendedor}*\n\n⚠️ Por favor, verificar esse caso com urgência.`
 };
 
-// Compute business hours difference
+// Compute business hours between two dates
 function horasUteisEntreDatas(inicio, fim) {
   const start = new Date(inicio);
   const end = new Date(fim);
@@ -51,7 +52,7 @@ function horasUteisEntreDatas(inicio, fim) {
   return horas;
 }
 
-// Send message via WPPConnect
+// Send WhatsApp message via WPPConnect
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
     console.warn(`[ERRO] Número inválido: ${numero}`);
@@ -61,7 +62,7 @@ async function enviarMensagem(numero, texto) {
     await axios.post(`${WPP_URL}/send-message`, { number: numero, message: texto });
     console.log(`Mensagem enviada para ${numero}: ${texto}`);
   } catch (err) {
-    console.error("Erro ao enviar mensagem:", err.response?.data || err.message);
+    console.error('[ERRO] Falha no envio WPP:', err.response?.data || err.message);
   }
 }
 
@@ -72,9 +73,11 @@ async function transcreverAudio(url) {
     const form = new FormData();
     form.append('file', Buffer.from(resp.data), { filename: 'audio.ogg', contentType: 'audio/ogg' });
     form.append('model', 'whisper-1');
-    const result = await axios.post('https://api.openai.com/v1/audio/transcriptions', form, {
-      headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
-    });
+    const result = await axios.post(
+      'https://api.openai.com/v1/audio/transcriptions',
+      form,
+      { headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } }
+    );
     return result.data.text;
   } catch (err) {
     console.error('[ERRO] Transcrição de áudio falhou:', err.response?.data || err.message);
@@ -86,103 +89,104 @@ async function transcreverAudio(url) {
 async function extrairTextoPDF(url) {
   try {
     const resp = await axios.get(url, { responseType: 'arraybuffer' });
-    const data = await pdfParse(resp.data);
+    const data = await pdf(resp.data);
     return data.text;
   } catch (err) {
-    console.error('[ERRO] Leitura de PDF falhou:', err);
+    console.error('[ERRO] Extração PDF falhou:', err.message);
     return null;
   }
 }
 
-// Determine if client awaits quote via AI
-async function isWaitingForQuote(cliente, mensagem, contexto) {
+// Determine if the client is waiting for quote via AI
+async function isWaitingForQuote(cliente, mensagem, contexto = '') {
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'Você é Gerente Comercial IA, detecte se o cliente aguarda orçamento.' },
-        { role: 'user', content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? '\nContexto extra: ' + contexto : ''}` }
+        { role: 'system', content: 'Você é Gerente Comercial IA e detecta se o cliente aguarda um orçamento.' },
+        { role: 'user', content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? '\nContexto: ' + contexto : ''}` }
       ]
     });
     const reply = completion.choices[0].message.content.toLowerCase();
     return reply.includes('sim') || reply.includes('aguard') || reply.includes('precisa');
   } catch (err) {
-    console.error('[ERRO] Análise de intenção falhou:', err);
+    console.error('[ERRO] Análise de intenção falhou:', err.message);
     return false;
   }
 }
 
+// Webhook endpoint
 app.post('/conversa', async (req, res) => {
   try {
-    const body = req.body;
-    const payload = body.payload;
+    const { payload } = req.body;
     if (!payload || !payload.user || !payload.attendant || !payload.message) {
-      console.error('[ERRO] Payload incompleto:', body);
-      return res.status(400).json({ error: 'Payload incompleto.' });
+      console.error('[ERRO] Payload incompleto:', req.body);
+      return res.status(400).json({ error: 'Payload incompleto' });
     }
 
-    const cliente = payload.user.Name;
-    const vendedor = payload.attendant.Name.trim();
+    const nomeCliente = payload.user.Name;
+    const nomeVendedor = payload.attendant.Name.trim();
     const msg = payload.message;
-    let textoMensagem = msg.text || msg.caption || '[attachment]';
-    const tipo = msg.type || 'text';
-    console.log(`[LOG] Nova mensagem recebida de ${cliente}: "${textoMensagem}"`);
+    const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
 
-    // Handle attachments
+    // Determine text content
+    let textoMensagem = msg.text || msg.caption || (attachments.length ? '[attachment]' : '');
+    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${textoMensagem}"`);
+
+    // Process attachments for context
     let contextoExtra = '';
-    if (msg.attachments && msg.attachments.length) {
-      console.log('[ANEXOS RECEBIDOS]', msg.attachments);
-      for (const a of msg.attachments) {
-        if (a.type === 'audio' && a.payload?.url) {
-          const trans = await transcreverAudio(a.payload.url);
-          if (trans) {
-            console.log('[TRANSCRICAO]', trans);
-            contextoExtra += trans + ' ';
-          }
+    for (const att of attachments) {
+      const { type, payload: attPayload } = att;
+      const url = attPayload?.url;
+      if (!url) continue;
+      if (type === 'audio') {
+        const txt = await transcreverAudio(url);
+        if (txt) {
+          console.log('[TRANSCRICAO]', txt);
+          contextoExtra += txt + '\n';
         }
-        if (a.type === 'file' && a.payload?.url && a.FileName?.toLowerCase().endsWith('.pdf')) {
-          const pdfText = await extrairTextoPDF(a.payload.url);
-          if (pdfText) {
-            console.log('[PDF-TEXTO]', pdfText);
-            contextoExtra += pdfText + ' ';
-          }
+      } else if (type === 'file' && attPayload.filename?.toLowerCase().endsWith('.pdf')) {
+        const txt = await extrairTextoPDF(url);
+        if (txt) {
+          console.log('[PDF-TEXTO]', txt);
+          contextoExtra += txt + '\n';
         }
       }
     }
 
-    // AI intent detection
-    const awaiting = await isWaitingForQuote(cliente, textoMensagem, contextoExtra.trim());
+    // Check if client awaits quote
+    const awaiting = await isWaitingForQuote(nomeCliente, textoMensagem, contextoExtra);
     if (!awaiting) {
       console.log('[INFO] Cliente não aguarda orçamento. Sem alertas.');
-      return res.json({ status: 'Sem ação necessária.' });
+      return res.json({ status: 'sem ação necessária' });
     }
 
-    // Timing logic
-    const criadoEm = new Date(payload.message.CreatedAt || payload.timestamp);
-    const horas = horasUteisEntreDatas(criadoEm, new Date());
-    const numVend = VENDEDORES[vendedor.toLowerCase()];
-    if (!numVend) {
-      console.warn(`[ERRO] Vendedor "${vendedor}" não está mapeado.`);
-      return res.json({ warning: 'Vendedor não mapeado.' });
+    // Calculate business hours since message
+    const timestamp = msg.timestamp || payload.timestamp;
+    const horas = horasUteisEntreDatas(timestamp, new Date());
+    const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
+    if (!numeroVendedor) {
+      console.warn(`[ERRO] Vendedor não mapeado: ${nomeVendedor}`);
+      return res.json({ warning: 'Vendedor não mapeado' });
     }
 
-    // Alerts by hours
+    // Send alerts based on timing
     if (horas >= 18) {
-      await enviarMensagem(numVend, MENSAGENS.alertaFinal(cliente, vendedor));
-      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(cliente, vendedor)), 10*60*1000);
+      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
+      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor)), 10 * 60 * 1000);
     } else if (horas >= 12) {
-      await enviarMensagem(numVend, MENSAGENS.alerta2(cliente, vendedor));
+      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedor));
     } else if (horas >= 6) {
-      await enviarMensagem(numVend, MENSAGENS.alerta1(cliente, vendedor));
+      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedor));
     }
 
-    res.json({ status: 'Processado' });
-
+    return res.json({ status: 'processado' });
   } catch (err) {
-    console.error('[ERRO] Falha ao processar:', err);
-    res.status(500).json({ error: 'Erro interno.' });
+    console.error('[ERRO] Falha ao processar:', err.message);
+    return res.status(500).json({ error: 'Erro interno' });
   }
 });
 
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor do Gerente Comercial IA rodando na porta ${PORT}`));
