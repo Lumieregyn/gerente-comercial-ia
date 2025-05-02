@@ -9,13 +9,16 @@ require("dotenv").config();
 const app = express();
 app.use(bodyParser.json());
 
-// Initialize OpenAI client\const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// --- Inicializa o cliente OpenAI ---
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
-// Environment variables
+// --- Variáveis de ambiente ---
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
-// Sellers mapping
+// --- Mapeamento de vendedores ---
 const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
@@ -23,7 +26,7 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-// Alert message templates
+// --- Templates de mensagem ---
 const MENSAGENS = {
   alerta1: (c, v) =>
     `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.\nAgradecemos pela colaboração.`,
@@ -35,7 +38,7 @@ const MENSAGENS = {
     `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*\n\n⚠️ Por favor, verificar esse caso com urgência.`
 };
 
-// Compute business hours between two dates
+// --- Conta horas úteis entre duas datas ---
 function horasUteisEntreDatas(inicio, fim) {
   const start = new Date(inicio);
   const end = new Date(fim);
@@ -50,7 +53,7 @@ function horasUteisEntreDatas(inicio, fim) {
   return horas;
 }
 
-// Send WhatsApp via WPPConnect
+// --- Envia mensagem via WPPConnect ---
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
     console.warn(`[ERRO] Número inválido: ${numero}`);
@@ -64,7 +67,7 @@ async function enviarMensagem(numero, texto) {
   }
 }
 
-// Transcribe audio via Whisper
+// --- Transcreve áudio com Whisper ---
 async function transcreverAudio(url) {
   try {
     const resp = await axios.get(url, { responseType: 'arraybuffer' });
@@ -81,7 +84,7 @@ async function transcreverAudio(url) {
   }
 }
 
-// Extract text from PDF
+// --- Extrai texto de PDF via pdf-parse ---
 async function extrairTextoPDF(url) {
   try {
     const resp = await axios.get(url, { responseType: 'arraybuffer' });
@@ -93,13 +96,21 @@ async function extrairTextoPDF(url) {
   }
 }
 
-// Stub for image analysis
+// --- Analisa imagem com OpenAI Vision beta (stub) ---
 async function analisarImagem(url) {
-  console.warn('[WARN] Análise de imagem não implementada.');
-  return null;
+  try {
+    const resp = await axios.get(url, { responseType: 'arraybuffer' });
+    const base64 = Buffer.from(resp.data).toString('base64');
+    // visão beta: ajusta segundo sua versão do cliente OpenAI
+    const vision = await openai.vision.predict({ data: base64 });
+    return vision;
+  } catch (err) {
+    console.error('[ERRO] Análise de imagem falhou:', err);
+    return null;
+  }
 }
 
-// Detect if client awaits quote using GPT-4o
+// --- Detecta se o cliente aguarda orçamento via GPT-4o ---
 async function isWaitingForQuote(cliente, mensagem, contexto) {
   try {
     const completion = await openai.chat.completions.create({
@@ -117,7 +128,7 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
   }
 }
 
-// Main webhook
+// --- Endpoint principal de webhook ---
 app.post('/conversa', async (req, res) => {
   try {
     const { payload } = req.body;
@@ -128,56 +139,64 @@ app.post('/conversa', async (req, res) => {
     const { user, message, attendant } = payload;
     const nomeCliente = user.Name;
     const nomeVendedor = attendant.Name;
-    const texto = message.text || '';
+    const texto = message.text || message.caption || '[attachment]';
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    let contextoExtra = '';
-    if (Array.isArray(message.attachments)) {
-      for (const att of message.attachments) {
-        const url = att.payload?.url;
-        if (!url) continue;
-        if (att.type === 'audio') {
-          const t = await transcreverAudio(url);
-          if (t) { console.log('[TRANSCRICAO]', t); contextoExtra += t + '\n'; }
-        } else if (att.type === 'file' && att.FileName?.toLowerCase().endsWith('.pdf')) {
-          const pdfText = await extrairTextoPDF(url);
-          if (pdfText) { console.log('[PDF-TEXTO]', pdfText); contextoExtra += pdfText + '\n'; }
-        } else if (att.type === 'image') {
-          const imgRes = await analisarImagem(url);
-          if (imgRes) { console.log('[IMAGEM-ANALISE]', imgRes); contextoExtra += JSON.stringify(imgRes) + '\n'; }
-        }
-      }
+    let contextoExtra = "";
+
+    // áudio
+    if (message.type === "audio" && message.payload?.url) {
+      const t = await transcreverAudio(message.payload.url);
+      if (t) { console.log("[TRANSCRICAO]", t); contextoExtra += t; }
+    }
+    // PDF
+    if (message.type === "file"
+        && message.payload?.url
+        && message.payload.FileName?.toLowerCase().endsWith(".pdf")) {
+      const pdfText = await extrairTextoPDF(message.payload.url);
+      if (pdfText) { console.log("[PDF-TEXTO]", pdfText); contextoExtra += "\n" + pdfText; }
+    }
+    // imagem
+    if (message.type === "image" && message.payload?.url) {
+      const imgRes = await analisarImagem(message.payload.url);
+      if (imgRes) { console.log("[IMAGEM-ANALISE]", imgRes); contextoExtra += "\n" + JSON.stringify(imgRes); }
     }
 
+    // detecção de espera de orçamento
     const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
     if (!aguardando) {
-      console.log('[INFO] Cliente não aguarda orçamento. Sem alertas.');
-      return res.json({ status: 'Sem ação necessária.' });
+      console.log("[INFO] Cliente não aguarda orçamento. Sem alertas.");
+      return res.json({ status: "Sem ação necessária." });
     }
 
-    const criadoEm = new Date(payload.timestamp);
+    // cálculo de horas úteis
+    const criadoEm = new Date(payload.message.CreatedAt || payload.timestamp);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
     const numeroVendedor = VENDEDORES[nomeVendedor.toLowerCase()];
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${nomeVendedor}" não está mapeado.`);
-      return res.json({ warning: 'Vendedor não mapeado.' });
+      return res.json({ warning: "Vendedor não mapeado." });
     }
 
+    // disparo de alertas
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedor));
-      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor)), 10 * 60 * 1000);
+      setTimeout(
+        () => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedor)),
+        10 * 60 * 1000
+      );
     } else if (horas >= 12) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedor));
     } else if (horas >= 6) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedor));
     }
 
-    res.json({ status: 'Processado' });
+    res.json({ status: "Processado" });
   } catch (err) {
-    console.error('[ERRO] Falha ao processar:', err);
-    res.status(500).json({ error: 'Erro interno.' });
+    console.error("[ERRO] Falha ao processar:", err);
+    res.status(500).json({ error: "Erro interno." });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Servidor rodando na porta', PORT));
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
