@@ -1,3 +1,4 @@
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -25,14 +26,21 @@ const VENDEDORES = {
 };
 
 const MENSAGENS = {
-  alerta1: (c, v) =>
-    `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
-  alerta2: (c, v) =>
-    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
-  alertaFinal: (c, v) =>
-    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
-  alertaGestores: (c, v) =>
-    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
+  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*
+
+Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.
+Solicitamos atenção para concluir o atendimento o quanto antes.`,
+  alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*
+
+Prezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
+  alertaFinal: (c, v) => `‼️ *Último Alerta (18h úteis)*
+
+Prezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.
+Você tem 10 minutos para responder esta mensagem.`,
+  alertaGestores: (c, v) => `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*
+
+Cliente *${c}* segue sem retorno após 18h úteis.
+Responsável: *${v}*`
 };
 
 function horasUteisEntreDatas(inicio, fim) {
@@ -41,7 +49,8 @@ function horasUteisEntreDatas(inicio, fim) {
   let horas = 0;
   const cur = new Date(start);
   while (cur < end) {
-    const dia = cur.getDay(), hora = cur.getHours();
+    const dia = cur.getDay();
+    const hora = cur.getHours();
     if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) horas++;
     cur.setHours(cur.getHours() + 1);
   }
@@ -49,7 +58,7 @@ function horasUteisEntreDatas(inicio, fim) {
 }
 
 function normalizeNome(nome) {
-  return nome?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  return nome?.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
 }
 
 async function enviarMensagem(numero, texto) {
@@ -86,18 +95,13 @@ async function extrairTextoPDF(url) {
   }
 }
 
-// *** Função corrigida ***
 async function analisarImagem(url) {
   try {
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
-    const imageBytes = Buffer.from(response.data).toString('base64');
-    const [result] = await visionClient.textDetection({
-      image: { content: imageBytes }
-    });
+    const [result] = await visionClient.textDetection({ image: { source: { imageUri: url } } });
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
   } catch (err) {
-    console.error('[ERRO] Análise de imagem falhou:', err.message);
+    console.error("[ERRO] Análise de imagem falhou:", err.message);
     return null;
   }
 }
@@ -107,14 +111,10 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        {
-          role: "system",
-          content: "Você é um Gerente Comercial IA que identifica se um cliente está aguardando um orçamento."
-        },
-        {
-          role: "user",
-          content: `Cliente: ${cliente}\nMensagem: ${mensagem}\nContexto: ${contexto || ""}`
-        }
+        { role: "system", content: "Você é um Gerente Comercial IA que identifica se um cliente está aguardando um orçamento." },
+        { role: "user", content: `Cliente: ${cliente}
+Mensagem: ${mensagem}
+Contexto: ${contexto || ""}` }
       ]
     });
     const reply = completion.choices[0].message.content.toLowerCase();
@@ -150,13 +150,13 @@ app.post("/conversa", async (req, res) => {
           const t = await transcreverAudio(a.payload.url);
           if (t) contextoExtra += t;
         }
-        if (a.type === "file" && a.payload?.url && a.payload.FileName?.endsWith(".pdf")) {
+        if (a.type === "file" && a.payload?.url && a.payload.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
-          if (t) contextoExtra += "\n" + t;
+          if (t) contextoExtra += t;
         }
-        if (a.type === "image" && a.payload?.url) {
+        if (a.type === "image" && a.payload?.url?.startsWith("http")) {
           const t = await analisarImagem(a.payload.url);
-          if (t) contextoExtra += "\n" + t;
+          if (t) contextoExtra += t;
         }
       }
     }
@@ -174,10 +174,7 @@ app.post("/conversa", async (req, res) => {
 
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, vendedorRaw));
-      setTimeout(
-        () => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, vendedorRaw)),
-        10 * 60 * 1000
-      );
+      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, vendedorRaw)), 10 * 60 * 1000);
     } else if (horas >= 12) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, vendedorRaw));
     } else if (horas >= 6) {
