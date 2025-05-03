@@ -89,12 +89,15 @@ async function extrairTextoPDF(url) {
 // *** Função corrigida ***
 async function analisarImagem(url) {
   try {
-    // chama o Google Cloud Vision diretamente via URI
-    const [result] = await visionClient.textDetection({ image: { source: { imageUri: url } } });
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
+    const imageBytes = Buffer.from(response.data).toString('base64');
+    const [result] = await visionClient.textDetection({
+      image: { content: imageBytes }
+    });
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
   } catch (err) {
-    console.error("[ERRO] Análise de imagem falhou:", err.message);
+    console.error('[ERRO] Análise de imagem falhou:', err.message);
     return null;
   }
 }
