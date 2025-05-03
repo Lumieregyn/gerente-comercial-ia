@@ -25,14 +25,10 @@ const VENDEDORES = {
 };
 
 const MENSAGENS = {
-  alerta1: (c, v) =>
-    `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
-  alerta2: (c, v) =>
-    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
-  alertaFinal: (c, v) =>
-    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
-  alertaGestores: (c, v) =>
-    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
+  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
+  alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
+  alertaFinal: (c, v) => `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
+  alertaGestores: (c, v) => `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
 };
 
 function horasUteisEntreDatas(inicio, fim) {
@@ -58,7 +54,7 @@ async function enviarMensagem(numero, texto) {
   try {
     await axios.post(`${WPP_URL}/send-message`, { number: numero, message: texto });
   } catch (err) {
-    console.error("Erro ao enviar mensagem:", err.message || err);
+    console.error("Erro ao enviar:", err.message);
   }
 }
 
@@ -72,8 +68,7 @@ async function transcreverAudio(url) {
       headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
     });
     return result.data.text;
-  } catch (err) {
-    console.error("[ERRO] Transcrição de áudio falhou:", err.message || err);
+  } catch {
     return null;
   }
 }
@@ -83,28 +78,25 @@ async function extrairTextoPDF(url) {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const data = await pdfParse(resp.data);
     return data.text;
-  } catch (err) {
-    console.error("[ERRO] PDF parse falhou:", err.message || err);
+  } catch {
     return null;
   }
 }
 
-// *** Função ajustada para não tratar a API key como caminho de arquivo ***
+// <<-- ATENÇÃO: função de análise de imagem ajustada abaixo -->
 async function analisarImagem(url) {
   try {
-    // Baixa o conteúdo da imagem
+    // Baixa o binário da imagem
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const buffer = resp.data;
-
-    // Envia o conteúdo binário para o Vision API
+    // Envia o conteúdo diretamente ao Cloud Vision
     const [result] = await visionClient.textDetection({
       image: { content: buffer }
     });
-
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
   } catch (err) {
-    console.error("[ERRO] Análise de imagem falhou:", err.message || err);
+    console.error("[ERRO] Análise de imagem falhou:", err.message);
     return null;
   }
 }
@@ -120,8 +112,7 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
     });
     const reply = completion.choices[0].message.content.toLowerCase();
     return reply.includes("sim") || reply.includes("aguard");
-  } catch (err) {
-    console.error("[ERRO] Análise de intenção falhou:", err.message || err);
+  } catch {
     return false;
   }
 }
@@ -134,8 +125,8 @@ app.post("/conversa", async (req, res) => {
     const vendedorRaw = payload.attendant?.Name || "";
 
     if (!message || !user) {
-      console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
-      return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
+      console.error("[ERRO] Payload incompleto:", req.body);
+      return res.status(400).json({ error: "Payload incompleto" });
     }
 
     const nomeCliente = user.Name || "Cliente";
@@ -150,33 +141,21 @@ app.post("/conversa", async (req, res) => {
       for (const a of message.attachments) {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
-          if (t) {
-            console.log("[TRANSCRICAO]", t);
-            contextoExtra += t;
-          }
+          if (t) contextoExtra += t;
         }
         if (a.type === "file" && a.payload?.url && a.payload.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
-          if (t) {
-            console.log("[PDF-TEXTO]", t);
-            contextoExtra += "\n" + t;
-          }
+          if (t) contextoExtra += t;
         }
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
-          if (t) {
-            console.log("[IMAGEM-ANALISE]", t);
-            contextoExtra += "\n" + t;
-          }
+          if (t) contextoExtra += t;
         }
       }
     }
 
     const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
-    if (!aguardando) {
-      console.log("[INFO] Cliente não aguarda orçamento. Sem alertas.");
-      return res.json({ status: "Sem ação necessária." });
-    }
+    if (!aguardando) return res.json({ status: "Sem alerta" });
 
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${vendedorRaw}" não está mapeado.`);
@@ -188,10 +167,7 @@ app.post("/conversa", async (req, res) => {
 
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, vendedorRaw));
-      setTimeout(() =>
-        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, vendedorRaw)),
-        10 * 60 * 1000
-      );
+      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, vendedorRaw)), 10 * 60 * 1000);
     } else if (horas >= 12) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, vendedorRaw));
     } else if (horas >= 6) {
@@ -200,7 +176,7 @@ app.post("/conversa", async (req, res) => {
 
     res.json({ status: "Processado" });
   } catch (err) {
-    console.error("[ERRO] Falha ao processar:", err.message || err);
+    console.error("[ERRO] Falha no processamento:", err.message);
     res.status(500).json({ error: "Erro interno." });
   }
 });
