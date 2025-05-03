@@ -25,10 +25,14 @@ const VENDEDORES = {
 };
 
 const MENSAGENS = {
-  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
-  alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
-  alertaFinal: (c, v) => `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
-  alertaGestores: (c, v) => `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
+  alerta1: (c, v) =>
+    `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
+  alerta2: (c, v) =>
+    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
+  alertaFinal: (c, v) =>
+    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
+  alertaGestores: (c, v) =>
+    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
 };
 
 function horasUteisEntreDatas(inicio, fim) {
@@ -37,8 +41,7 @@ function horasUteisEntreDatas(inicio, fim) {
   let horas = 0;
   const cur = new Date(start);
   while (cur < end) {
-    const dia = cur.getDay();
-    const hora = cur.getHours();
+    const dia = cur.getDay(), hora = cur.getHours();
     if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) horas++;
     cur.setHours(cur.getHours() + 1);
   }
@@ -83,16 +86,15 @@ async function extrairTextoPDF(url) {
   }
 }
 
+// *** Função corrigida ***
 async function analisarImagem(url) {
   try {
-    // baixar bytes
-    const resp = await axios.get(url, { responseType: 'arraybuffer' });
-    const imageBuffer = Buffer.from(resp.data);
-    const [result] = await visionClient.textDetection({ image: { content: imageBuffer } });
+    // chama o Google Cloud Vision diretamente via URI
+    const [result] = await visionClient.textDetection({ image: { source: { imageUri: url } } });
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
   } catch (err) {
-    console.error('[ERRO] Análise de imagem falhou:', err.message);
+    console.error("[ERRO] Análise de imagem falhou:", err.message);
     return null;
   }
 }
@@ -102,8 +104,14 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        { role: "system", content: "Você é um Gerente Comercial IA que identifica se um cliente está aguardando um orçamento." },
-        { role: "user", content: `Cliente: ${cliente}\nMensagem: ${mensagem}\nContexto: ${contexto || ''}` }
+        {
+          role: "system",
+          content: "Você é um Gerente Comercial IA que identifica se um cliente está aguardando um orçamento."
+        },
+        {
+          role: "user",
+          content: `Cliente: ${cliente}\nMensagem: ${mensagem}\nContexto: ${contexto || ""}`
+        }
       ]
     });
     const reply = completion.choices[0].message.content.toLowerCase();
@@ -127,8 +135,8 @@ app.post("/conversa", async (req, res) => {
 
     const nomeCliente = user.Name || "Cliente";
     const texto = message.text || message.caption || "[attachment]";
-    const nomeVendedorNorm = normalizeNome(vendedorRaw);
-    const numeroVendedor = VENDEDORES[nomeVendedorNorm];
+    const nomeVendedor = normalizeNome(vendedorRaw);
+    const numeroVendedor = VENDEDORES[nomeVendedor];
 
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
@@ -139,13 +147,13 @@ app.post("/conversa", async (req, res) => {
           const t = await transcreverAudio(a.payload.url);
           if (t) contextoExtra += t;
         }
-        if (a.type === "file" && a.payload?.url && a.payload.FileName?.toLowerCase().endsWith(".pdf")) {
+        if (a.type === "file" && a.payload?.url && a.payload.FileName?.endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
-          if (t) contextoExtra += t;
+          if (t) contextoExtra += "\n" + t;
         }
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
-          if (t) contextoExtra += t;
+          if (t) contextoExtra += "\n" + t;
         }
       }
     }
@@ -163,7 +171,10 @@ app.post("/conversa", async (req, res) => {
 
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, vendedorRaw));
-      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, vendedorRaw)), 10 * 60 * 1000);
+      setTimeout(
+        () => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, vendedorRaw)),
+        10 * 60 * 1000
+      );
     } else if (horas >= 12) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, vendedorRaw));
     } else if (horas >= 6) {
