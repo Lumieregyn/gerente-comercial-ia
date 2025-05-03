@@ -11,15 +11,12 @@ require("dotenv").config();
 const app = express();
 app.use(bodyParser.json());
 
-// OpenAI & Cloud Vision clients
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const visionClient = new vision.ImageAnnotatorClient();
 
-// Env vars
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
-// Mapeamento de vendedores
 const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
@@ -27,19 +24,13 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-// Templates de alerta
 const MENSAGENS = {
-  alerta1: (c, v) =>
-    `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
-  alerta2: (c, v) =>
-    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
-  alertaFinal: (c, v) =>
-    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
-  alertaGestores: (c, v) =>
-    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
+  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
+  alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
+  alertaFinal: (c, v) => `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
+  alertaGestores: (c, v) => `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
 };
 
-// Calcula horas úteis
 function horasUteisEntreDatas(inicio, fim) {
   const start = new Date(inicio);
   const end = new Date(fim);
@@ -54,12 +45,10 @@ function horasUteisEntreDatas(inicio, fim) {
   return horas;
 }
 
-// Normaliza nome para lookup
 function normalizeNome(nome) {
   return nome?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 }
 
-// Envia mensagem via WPPConnect
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) return;
   try {
@@ -69,7 +58,6 @@ async function enviarMensagem(numero, texto) {
   }
 }
 
-// Transcrição de áudio via Whisper
 async function transcreverAudio(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
@@ -85,7 +73,6 @@ async function transcreverAudio(url) {
   }
 }
 
-// Extração de texto de PDF
 async function extrairTextoPDF(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
@@ -96,14 +83,12 @@ async function extrairTextoPDF(url) {
   }
 }
 
-// Análise de imagem via Cloud Vision
 async function analisarImagem(url) {
   try {
-    // baixar imagem
+    // baixar bytes
     const resp = await axios.get(url, { responseType: 'arraybuffer' });
-    const buffer = resp.data;
-    // passar conteúdo para a API
-    const [result] = await visionClient.textDetection({ image: { content: buffer } });
+    const imageBuffer = Buffer.from(resp.data);
+    const [result] = await visionClient.textDetection({ image: { content: imageBuffer } });
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
   } catch (err) {
@@ -112,66 +97,65 @@ async function analisarImagem(url) {
   }
 }
 
-// Detecta se o cliente aguarda orçamento
 async function isWaitingForQuote(cliente, mensagem, contexto) {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: "gpt-4o",
       messages: [
-        { role: 'system', content: 'Você é um Gerente Comercial IA que identifica se um cliente está aguardando um orçamento.' },
-        { role: 'user', content: `Cliente: ${cliente}\nMensagem: ${mensagem}\nContexto: ${contexto || ''}` }
+        { role: "system", content: "Você é um Gerente Comercial IA que identifica se um cliente está aguardando um orçamento." },
+        { role: "user", content: `Cliente: ${cliente}\nMensagem: ${mensagem}\nContexto: ${contexto || ''}` }
       ]
     });
     const reply = completion.choices[0].message.content.toLowerCase();
-    return reply.includes('sim') || reply.includes('aguard');
+    return reply.includes("sim") || reply.includes("aguard");
   } catch {
     return false;
   }
 }
 
-// Endpoint principal
-app.post('/conversa', async (req, res) => {
+app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
     const message = payload.Message || payload.message;
     const user = payload.user;
-    const vendedorRaw = payload.attendant?.Name || '';
+    const vendedorRaw = payload.attendant?.Name || "";
+
     if (!message || !user) {
-      console.error('[ERRO] Payload incompleto:', req.body);
-      return res.status(400).json({ error: 'Payload incompleto' });
+      console.error("[ERRO] Payload incompleto:", req.body);
+      return res.status(400).json({ error: "Payload incompleto" });
     }
-    const nomeCliente = user.Name || 'Cliente';
-    const texto = message.text || message.caption || '[attachment]';
-    const nomeVendedor = normalizeNome(vendedorRaw);
-    const numeroVendedor = VENDEDORES[nomeVendedor];
+
+    const nomeCliente = user.Name || "Cliente";
+    const texto = message.text || message.caption || "[attachment]";
+    const nomeVendedorNorm = normalizeNome(vendedorRaw);
+    const numeroVendedor = VENDEDORES[nomeVendedorNorm];
 
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // processa anexos
-    let contextoExtra = '';
+    let contextoExtra = "";
     if (message.attachments?.length) {
       for (const a of message.attachments) {
-        if (a.type === 'audio' && a.payload?.url) {
+        if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
           if (t) contextoExtra += t;
         }
-        if (a.type === 'file' && a.payload?.url && a.payload.FileName?.toLowerCase().endsWith('.pdf')) {
+        if (a.type === "file" && a.payload?.url && a.payload.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
-          if (t) contextoExtra += '\n' + t;
+          if (t) contextoExtra += t;
         }
-        if (a.type === 'image' && a.payload?.url) {
+        if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
-          if (t) contextoExtra += '\n' + t;
+          if (t) contextoExtra += t;
         }
       }
     }
 
     const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
-    if (!aguardando) return res.json({ status: 'Sem alerta' });
+    if (!aguardando) return res.json({ status: "Sem alerta" });
 
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor "${vendedorRaw}" não está mapeado.`);
-      return res.json({ warning: 'Vendedor não mapeado.' });
+      return res.json({ warning: "Vendedor não mapeado." });
     }
 
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
@@ -186,13 +170,12 @@ app.post('/conversa', async (req, res) => {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, vendedorRaw));
     }
 
-    res.json({ status: 'Processado' });
+    res.json({ status: "Processado" });
   } catch (err) {
-    console.error('[ERRO] Falha no processamento:', err.message);
-    res.status(500).json({ error: 'Erro interno.' });
+    console.error("[ERRO] Falha no processamento:", err.message);
+    res.status(500).json({ error: "Erro interno." });
   }
 });
 
-// Inicia servidor
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Servidor rodando na porta', PORT));
+app.listen(PORT, () => console.log("Servidor rodando na porta", PORT));
