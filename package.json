@@ -2,17 +2,18 @@
   "name": "gerente-comercial-ia",
   "version": "1.0.0",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@google-cloud/vision": "^5.1.0",
     "axios": "^1.6.7",
     "body-parser": "^1.20.2",
     "express": "^4.18.2",
     "form-data": "^4.0.0",
     "pdf-parse": "^1.1.1",
-    "dotenv": "^16.3.1",
-    "openai": "^4.20.0"
+    "@google-cloud/vision": "3.2.0",
+    "openai": "^4.21.1",
+    "dotenv": "^16.4.5"
   }
 }
