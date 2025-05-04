@@ -3,11 +3,9 @@ const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
+const { OpenAI } = require("openai");
 const fs = require("fs");
 const path = require("path");
-const vision = require("@google-cloud/vision");
-const { OpenAI } = require("openai");
-const { v4: uuidv4 } = require("uuid");
 
 require("dotenv").config();
 
@@ -15,7 +13,6 @@ const app = express();
 app.use(bodyParser.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const visionClient = new vision.ImageAnnotatorClient();
 
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
@@ -28,7 +25,7 @@ const VENDEDORES = {
 };
 
 const MENSAGENS = {
-  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
+  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.`,
   alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
   alertaFinal: (c, v) => `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
   alertaGestores: (c, v) => `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
@@ -87,17 +84,18 @@ async function extrairTextoPDF(url) {
 }
 
 async function analisarImagem(url) {
-  const tempFile = path.join("/tmp", `${uuidv4()}.jpg`);
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
-    fs.writeFileSync(tempFile, resp.data);
-    const [result] = await visionClient.textDetection(tempFile);
-    fs.unlinkSync(tempFile);
+    const filePath = path.join(__dirname, "temp.jpg");
+    fs.writeFileSync(filePath, resp.data);
+    const vision = require("@google-cloud/vision");
+    const client = new vision.ImageAnnotatorClient();
+    const [result] = await client.textDetection(filePath);
+    fs.unlinkSync(filePath); // remove o arquivo temporário
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
   } catch (err) {
     console.error("[ERRO] Análise de imagem falhou:", err.message);
-    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
     return null;
   }
 }
@@ -125,9 +123,9 @@ app.post("/conversa", async (req, res) => {
     const user = payload.user;
     const vendedorRaw = payload.attendant?.Name || "";
 
-    if (!message || !user) {
-      console.error("[ERRO] Payload incompleto:", req.body);
-      return res.status(400).json({ error: "Payload incompleto" });
+    if (!message || !user || !message.attachments) {
+      console.warn("[ERRO] Payload incompleto ou evento não suportado:", req.body);
+      return res.status(200).json({ status: "Ignorado" });
     }
 
     const nomeCliente = user.Name || "Cliente";
@@ -138,20 +136,18 @@ app.post("/conversa", async (req, res) => {
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     let contextoExtra = "";
-    if (message.attachments?.length) {
-      for (const a of message.attachments) {
-        if (a.type === "audio" && a.payload?.url) {
-          const t = await transcreverAudio(a.payload.url);
-          if (t) contextoExtra += t;
-        }
-        if (a.type === "file" && a.payload?.url && a.payload.FileName?.endsWith(".pdf")) {
-          const t = await extrairTextoPDF(a.payload.url);
-          if (t) contextoExtra += t;
-        }
-        if (a.type === "image" && a.payload?.url) {
-          const t = await analisarImagem(a.payload.url);
-          if (t) contextoExtra += t;
-        }
+    for (const a of message.attachments) {
+      if (a.type === "audio" && a.payload?.url) {
+        const t = await transcreverAudio(a.payload.url);
+        if (t) contextoExtra += t;
+      }
+      if (a.type === "file" && a.payload?.url && a.payload.FileName?.endsWith(".pdf")) {
+        const t = await extrairTextoPDF(a.payload.url);
+        if (t) contextoExtra += t;
+      }
+      if (a.type === "image" && a.payload?.url) {
+        const t = await analisarImagem(a.payload.url);
+        if (t) contextoExtra += t;
       }
     }
 
