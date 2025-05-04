@@ -97,14 +97,27 @@ async function extrairTextoPDF(url) {
 async function analisarImagem(url) {
   try {
     // faz download antes de analisar
+    const fs = require("fs").promises;
+const path = require("path");
+const { v4: uuidv4 } = require("uuid");
+
+async function analisarImagem(url) {
+  try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
-    const [result] = await visionClient.textDetection({ image: { content: resp.data } });
-    return result.textAnnotations?.[0]?.description || null;
-  } catch (err) {
-    console.error("[ERRO] Análise de imagem falhou:", err.message);
+    const tempFilePath = path.join("/tmp", `${uuidv4()}.jpg`);
+    await fs.writeFile(tempFilePath, resp.data);
+
+    const [result] = await visionClient.textDetection(tempFilePath);
+    const detections = result.textAnnotations;
+    await fs.unlink(tempFilePath); // remove arquivo temporário
+
+    return detections?.[0]?.description || null;
+  } catch (error) {
+    console.error("[ERRO] Análise de imagem falhou:", error.message);
     return null;
   }
 }
+
 
 async function isWaitingForQuote(cliente, mensagem, contexto) {
   try {
