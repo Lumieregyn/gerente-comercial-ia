@@ -6,21 +6,20 @@ const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
 const vision = require("@google-cloud/vision");
 const { OpenAI } = require("openai");
-
 require("dotenv").config();
 
 const app = express();
 app.use(bodyParser.json());
 
-// clients
+// OpenAI e Vision clients
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const visionClient = new vision.ImageAnnotatorClient();
 
-// env
+// Variáveis de ambiente
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
-// mapeamento de vendedores
+// Mapeamento de vendedores
 const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
@@ -28,44 +27,44 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-// templates de alerta
+// Templates de mensagens de alerta
 const MENSAGENS = {
   alerta1: (c, v) =>
-    `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
+    `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.\nAgradecemos pela colaboração.`,
   alerta2: (c, v) =>
-    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
+    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.\nSolicitamos providências imediatas para evitar impacto negativo no atendimento.`,
   alertaFinal: (c, v) =>
-    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder.`,
+    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
   alertaGestores: (c, v) =>
-    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
+    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*\n\n⚠️ Por favor, verificar esse caso com urgência.`
 };
 
-// calcula horas úteis
+// Calcula horas úteis entre duas datas
 function horasUteisEntreDatas(inicio, fim) {
   const start = new Date(inicio);
   const end = new Date(fim);
   let horas = 0;
-  for (let cur = new Date(start); cur < end; cur.setHours(cur.getHours() + 1)) {
-    const d = cur.getDay(), h = cur.getHours();
-    if (d >= 1 && d <= 5 && h >= 8 && h < 19) horas++;
+  const cur = new Date(start);
+  while (cur < end) {
+    const dia = cur.getDay();
+    const hora = cur.getHours();
+    if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) horas++;
+    cur.setHours(cur.getHours() + 1);
   }
   return horas;
 }
 
-// envia WhatsApp
+// Envia mensagem via WPPConnect
 async function enviarMensagem(numero, texto) {
-  if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
-    console.warn(`[ERRO] Número inválido: ${numero}`);
-    return;
-  }
+  if (!numero || !/^[0-9]{11,13}$/.test(numero)) return;
   try {
     await axios.post(`${WPP_URL}/send-message`, { number: numero, message: texto });
   } catch (err) {
-    console.error("[ERRO] Envio WPPFalhou:", err.message);
+    console.error("Erro ao enviar mensagem:", err.message);
   }
 }
 
-// transcrição de áudio Whisper
+// Transcrição de áudio com Whisper
 async function transcreverAudio(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
@@ -77,115 +76,130 @@ async function transcreverAudio(url) {
     });
     return result.data.text;
   } catch (err) {
-    console.error("[ERRO] Transcrição áudio:", err.message);
+    console.error("[ERRO] Transcrição de áudio falhou:", err.message);
     return null;
   }
 }
 
-// extração de texto PDF
+// Extração de texto de PDF
 async function extrairTextoPDF(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const data = await pdfParse(resp.data);
     return data.text;
   } catch (err) {
-    console.error("[ERRO] PDF parse:", err.message);
+    console.error("[ERRO] PDF parse falhou:", err.message);
     return null;
   }
 }
 
-// OCR via Cloud Vision
+// Análise de imagem via Cloud Vision (OCR por URL)
 async function analisarImagem(url) {
   try {
-    // baixa e passa buffer diretamente
-    const resp = await axios.get(url, { responseType: "arraybuffer" });
-    const [result] = await visionClient.textDetection({ image: { content: resp.data } });
-    return result.textAnnotations?.[0]?.description || null;
+    const [result] = await visionClient.textDetection({
+      image: { source: { imageUri: url } }
+    });
+    const detections = result.textAnnotations;
+    return detections?.[0]?.description || null;
   } catch (err) {
-    console.error("[ERRO] Análise imagem:", err.message);
+    console.error("[ERRO] Análise de imagem falhou:", err.message);
     return null;
   }
 }
 
-// detecção de intenção de orçamento
+// Detecta se o cliente aguarda orçamento
 async function isWaitingForQuote(cliente, mensagem, contexto) {
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Você é um Gerente Comercial IA que identifica se um cliente está aguardando um orçamento." },
-        { role: "user", content: `Cliente: ${cliente}\nMensagem: ${mensagem}\nContexto: ${contexto || ""}` }
+        { role: "system", content: "Você é Gerente Comercial IA detectando se cliente aguarda orçamento." },
+        { role: "user", content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? `\nContexto: ${contexto}` : ""}` }
       ]
     });
     const reply = completion.choices[0].message.content.toLowerCase();
     return reply.includes("sim") || reply.includes("aguard");
   } catch (err) {
-    console.error("[ERRO] Intenção orçamento:", err.message);
+    console.error("[ERRO] Análise de intenção falhou:", err.message);
     return false;
   }
 }
 
-// webhook
+// Webhook principal
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
     if (!payload?.user || !payload?.message) {
-      console.error("[ERRO] Payload incompleto:", req.body);
-      return res.status(400).json({ error: "Payload incompleto" });
+      console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
+      return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
     }
 
-    const user    = payload.user;
-    const message = payload.message;
-    const atend   = payload.attendant;
-    const nomeCli = user.Name || "Cliente";
-    const rawText = message.text || message.caption || "[attachment]";
-    console.log(`[LOG] Nova mensagem recebida de ${nomeCli}: "${rawText}"`);
+    const user = payload.user;
+    const msg = payload.message;
+    const attendant = payload.attendant || {};
+    const nomeCliente = user.Name || "Cliente";
+    const texto = msg.text || msg.caption || "[attachment]";
+    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // coletar contexto de áudio/pdf/imagem
-    let contexto = "";
-    if (message.attachments?.length) {
-      for (const a of message.attachments) {
+    // Acumula contexto extra: áudio, PDF, imagem
+    let contextoExtra = "";
+    if (msg.attachments?.length) {
+      for (const a of msg.attachments) {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
-          if (t) contexto += t + "\n";
+          if (t) contextoExtra += `\n${t}`;
         }
-        if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
+        if (
+          a.type === "file" &&
+          a.payload?.url &&
+          a.payload.FileName?.toLowerCase().endsWith(".pdf")
+        ) {
           const t = await extrairTextoPDF(a.payload.url);
-          if (t) contexto += t + "\n";
+          if (t) contextoExtra += `\n${t}`;
         }
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
-          if (t) contexto += t + "\n";
+          if (t) contextoExtra += `\n${t}`;
         }
       }
     }
 
-    const aguardando = await isWaitingForQuote(nomeCli, rawText, contexto);
-    if (!aguardando) return res.json({ status: "Sem ação necessária" });
-
-    const nomeVendNorm = atend?.Name?.trim().toLowerCase();
-    const numeroVend   = VENDEDORES[nomeVendNorm];
-    if (!numeroVend) {
-      console.warn(`[ERRO] Vendedor "${atend?.Name}" não mapeado.`);
-      return res.json({ warning: "Vendedor não mapeado" });
+    const aguarda = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
+    if (!aguarda) {
+      console.log("[INFO] Cliente não aguarda orçamento. Sem alertas.");
+      return res.json({ status: "Sem ação necessária." });
     }
 
-    const criadoEm = new Date(message.CreatedAt || payload.timestamp);
-    const horas    = horasUteisEntreDatas(criadoEm, new Date());
+    // Mapeia vendedor
+    const nomeVendRaw = attendant.Name || "";
+    const chaveVend = nomeVendRaw.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const numeroVend = VENDEDORES[chaveVend];
+    if (!numeroVend) {
+      console.warn(`[ERRO] Vendedor "${nomeVendRaw}" não está mapeado.`);
+      return res.json({ warning: "Vendedor não mapeado." });
+    }
 
+    // Calcula horas úteis desde criação
+    const criadoEm = new Date(msg.CreatedAt || payload.timestamp);
+    const horas = horasUteisEntreDatas(criadoEm, new Date());
+
+    // Envia alertas conforme horas
     if (horas >= 18) {
-      await enviarMensagem(numeroVend, MENSAGENS.alertaFinal(nomeCli, atend.Name));
-      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCli, atend.Name)), 10 * 60 * 1000);
+      await enviarMensagem(numeroVend, MENSAGENS.alertaFinal(nomeCliente, nomeVendRaw));
+      setTimeout(
+        () => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendRaw)),
+        10 * 60 * 1000
+      );
     } else if (horas >= 12) {
-      await enviarMensagem(numeroVend, MENSAGENS.alerta2(nomeCli, atend.Name));
+      await enviarMensagem(numeroVend, MENSAGENS.alerta2(nomeCliente, nomeVendRaw));
     } else if (horas >= 6) {
-      await enviarMensagem(numeroVend, MENSAGENS.alerta1(nomeCli, atend.Name));
+      await enviarMensagem(numeroVend, MENSAGENS.alerta1(nomeCliente, nomeVendRaw));
     }
 
     res.json({ status: "Processado" });
   } catch (err) {
     console.error("[ERRO] Falha no processamento:", err.message);
-    res.status(500).json({ error: "Erro interno" });
+    res.status(500).json({ error: "Erro interno." });
   }
 });
 
