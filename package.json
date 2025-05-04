@@ -7,6 +7,7 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@google-cloud/vision": "^2.8.0",
     "axios": "^1.5.0",
     "body-parser": "^1.20.2",
     "dotenv": "^16.0.3",
@@ -14,7 +15,7 @@
     "form-data": "^4.0.0",
     "openai": "^4.4.0",
     "pdf-parse": "^1.1.1",
-    "@google-cloud/vision": "^4.3.2"
+    "pdfjs-dist": "^3.5.141"
   },
   "license": "MIT"
 }
