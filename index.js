@@ -3,11 +3,11 @@ const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
-const vision = require("@google-cloud/vision");
-const fs = require("fs").promises;
+const fs = require("fs");
 const path = require("path");
-const { v4: uuidv4 } = require("uuid");
+const vision = require("@google-cloud/vision");
 const { OpenAI } = require("openai");
+const { v4: uuidv4 } = require("uuid");
 
 require("dotenv").config();
 
@@ -28,9 +28,9 @@ const VENDEDORES = {
 };
 
 const MENSAGENS = {
-  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.`,
+  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
   alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
-  alertaFinal: (c, v) => `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.`,
+  alertaFinal: (c, v) => `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
   alertaGestores: (c, v) => `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
 };
 
@@ -87,16 +87,17 @@ async function extrairTextoPDF(url) {
 }
 
 async function analisarImagem(url) {
+  const tempFile = path.join("/tmp", `${uuidv4()}.jpg`);
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
-    const tempFilePath = path.join("/tmp", `${uuidv4()}.jpg`);
-    await fs.writeFile(tempFilePath, resp.data);
-    const [result] = await visionClient.textDetection(tempFilePath);
-    await fs.unlink(tempFilePath);
+    fs.writeFileSync(tempFile, resp.data);
+    const [result] = await visionClient.textDetection(tempFile);
+    fs.unlinkSync(tempFile);
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
-  } catch (error) {
-    console.error("[ERRO] Análise de imagem falhou:", error.message);
+  } catch (err) {
+    console.error("[ERRO] Análise de imagem falhou:", err.message);
+    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
     return null;
   }
 }
