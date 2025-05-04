@@ -1,3 +1,4 @@
+"@google-cloud/vision": "^5.1.0"
 {
   "name": "gerente-comercial-ia",
   "version": "1.0.0",
@@ -14,6 +15,6 @@
     "pdf-parse": "^1.1.1",
     "dotenv": "^16.3.1",
     "openai": "^4.25.1",
-    "@google-cloud/vision": "^3.2.2"
+    "@google-cloud/vision": "^5.1.0"
   }
 }
