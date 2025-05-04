@@ -3,16 +3,15 @@ const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
-const vision = require("@google-cloud/vision");
+const { ImageAnnotatorClient } = require("@google-cloud/vision");
 const { OpenAI } = require("openai");
-
 require("dotenv").config();
 
 const app = express();
 app.use(bodyParser.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const visionClient = new vision.ImageAnnotatorClient();
+const visionClient = new ImageAnnotatorClient();
 
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
@@ -25,10 +24,19 @@ const VENDEDORES = {
 };
 
 const MENSAGENS = {
-  alerta1: (c, v) => \`⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *\${v}*, o cliente *\${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.\`,
-  alerta2: (c, v) => \`⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *\${v}*, reforçamos que o cliente *\${c}* permanece aguardando orçamento há 12h úteis.\`,
-  alertaFinal: (c, v) => \`‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *\${v}*, o cliente *\${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.\`,
-  alertaGestores: (c, v) => \`🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *\${c}* segue sem retorno após 18h úteis.\nResponsável: *\${v}*\`
+  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*
+
+Prezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.`,
+  alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*
+
+Prezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando.`,
+  alertaFinal: (c, v) => `‼️ *Último Alerta (18h úteis)*
+
+Prezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando.`,
+  alertaGestores: (c, v) => `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*
+
+Cliente *${c}* sem retorno após 18h úteis.
+Responsável: *${v}*`
 };
 
 function horasUteisEntreDatas(inicio, fim) {
@@ -52,7 +60,7 @@ function normalizeNome(nome) {
 async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) return;
   try {
-    await axios.post(\`\${WPP_URL}/send-message\`, { number: numero, message: texto });
+    await axios.post(`${WPP_URL}/send-message`, { number: numero, message: texto });
   } catch (err) {
     console.error("Erro ao enviar:", err.message);
   }
@@ -65,7 +73,7 @@ async function transcreverAudio(url) {
     form.append("file", Buffer.from(resp.data), { filename: "audio.ogg", contentType: "audio/ogg" });
     form.append("model", "whisper-1");
     const result = await axios.post("https://api.openai.com/v1/audio/transcriptions", form, {
-      headers: { ...form.getHeaders(), Authorization: \`Bearer \${process.env.OPENAI_API_KEY}\` }
+      headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
     });
     return result.data.text;
   } catch {
@@ -85,13 +93,11 @@ async function extrairTextoPDF(url) {
 
 async function analisarImagem(url) {
   try {
-    const [result] = await visionClient.textDetection({
-      image: { source: { imageUri: url } }
-    });
+    const [result] = await visionClient.textDetection(url);
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
   } catch (err) {
-    console.error('[ERRO] Análise de imagem falhou:', err.message || err);
+    console.error("[ERRO] Análise de imagem falhou:", err.message);
     return null;
   }
 }
@@ -102,7 +108,9 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
       model: "gpt-4o",
       messages: [
         { role: "system", content: "Você é um Gerente Comercial IA que identifica se um cliente está aguardando um orçamento." },
-        { role: "user", content: \`Cliente: \${cliente}\nMensagem: \${mensagem}\nContexto: \${contexto || ""}\` }
+        { role: "user", content: `Cliente: ${cliente}
+Mensagem: ${mensagem}
+Contexto: ${contexto || ""}` }
       ]
     });
     const reply = completion.choices[0].message.content.toLowerCase();
@@ -129,7 +137,7 @@ app.post("/conversa", async (req, res) => {
     const nomeVendedor = normalizeNome(vendedorRaw);
     const numeroVendedor = VENDEDORES[nomeVendedor];
 
-    console.log(\`[LOG] Nova mensagem recebida de \${nomeCliente}: "\${texto}"\`);
+    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     let contextoExtra = "";
     if (message.attachments?.length) {
@@ -153,7 +161,7 @@ app.post("/conversa", async (req, res) => {
     if (!aguardando) return res.json({ status: "Sem alerta" });
 
     if (!numeroVendedor) {
-      console.warn(\`[ERRO] Vendedor "\${vendedorRaw}" não está mapeado.\`);
+      console.warn(`[ERRO] Vendedor "${vendedorRaw}" não está mapeado.`);
       return res.json({ warning: "Vendedor não mapeado." });
     }
 
