@@ -1,4 +1,3 @@
-// index.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -74,6 +73,7 @@ async function transcreverAudio(url) {
     const result = await axios.post("https://api.openai.com/v1/audio/transcriptions", form, {
       headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
     });
+    console.log("[TRANSCRICAO]", result.data.text);
     return result.data.text;
   } catch (err) {
     console.error("[ERRO] Transcrição de áudio falhou:", err.message);
@@ -86,6 +86,7 @@ async function extrairTextoPDF(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const data = await pdfParse(resp.data);
+    console.log("[PDF-TEXTO]", data.text.trim().slice(0, 200) + "...");
     return data.text;
   } catch (err) {
     console.error("[ERRO] PDF parse falhou:", err.message);
@@ -100,6 +101,7 @@ async function analisarImagem(url) {
       image: { source: { imageUri: url } }
     });
     const detections = result.textAnnotations;
+    console.log("[IMAGEM-ANALISE]", detections?.[0]?.description || "");
     return detections?.[0]?.description || null;
   } catch (err) {
     console.error("[ERRO] Análise de imagem falhou:", err.message);
@@ -129,34 +131,39 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
-    if (!payload?.user || !payload?.message) {
+    const msg = payload.message || payload.Message;
+    const user = payload.user;
+    const attendant = payload.attendant || {};
+
+    if (!msg || !user) {
       console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
       return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
     }
 
-    const user = payload.user;
-    const msg = payload.message;
-    const attendant = payload.attendant || {};
     const nomeCliente = user.Name || "Cliente";
     const texto = msg.text || msg.caption || "[attachment]";
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // Acumula contexto extra: áudio, PDF, imagem
+    // Gera contexto extra de anexo
     let contextoExtra = "";
-    if (msg.attachments?.length) {
+    if (Array.isArray(msg.attachments)) {
       for (const a of msg.attachments) {
+        // áudio
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
           if (t) contextoExtra += `\n${t}`;
         }
+        // PDF
         if (
           a.type === "file" &&
           a.payload?.url &&
-          a.payload.FileName?.toLowerCase().endsWith(".pdf")
+          typeof a.FileName === "string" &&
+          a.FileName.toLowerCase().endsWith(".pdf")
         ) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) contextoExtra += `\n${t}`;
         }
+        // imagem
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
           if (t) contextoExtra += `\n${t}`;
@@ -164,6 +171,7 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
+    // Verifica intenção
     const aguarda = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
     if (!aguarda) {
       console.log("[INFO] Cliente não aguarda orçamento. Sem alertas.");
@@ -172,7 +180,11 @@ app.post("/conversa", async (req, res) => {
 
     // Mapeia vendedor
     const nomeVendRaw = attendant.Name || "";
-    const chaveVend = nomeVendRaw.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const chaveVend = nomeVendRaw
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
     const numeroVend = VENDEDORES[chaveVend];
     if (!numeroVend) {
       console.warn(`[ERRO] Vendedor "${nomeVendRaw}" não está mapeado.`);
