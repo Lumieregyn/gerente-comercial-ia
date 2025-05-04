@@ -66,9 +66,11 @@ async function transcreverAudio(url) {
     const form = new FormData();
     form.append("file", Buffer.from(resp.data), { filename: "audio.ogg", contentType: "audio/ogg" });
     form.append("model", "whisper-1");
-    const result = await axios.post("https://api.openai.com/v1/audio/transcriptions", form, {
-      headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
-    });
+    const result = await axios.post(
+      "https://api.openai.com/v1/audio/transcriptions",
+      form,
+      { headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } }
+    );
     return result.data.text;
   } catch (err) {
     console.error("[ERRO] Transcrição de áudio falhou:", err.message);
@@ -80,8 +82,8 @@ async function extrairTextoPDF(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const { text } = await pdfParse(resp.data);
-    // se detectar texto muito curto, chama OCR de documento
     if ((text || "").trim().length < 50) {
+      // fallback para OCR do PDF
       const [doc] = await visionClient.documentTextDetection({ content: resp.data });
       return doc.fullTextAnnotation?.text || text;
     }
@@ -94,8 +96,9 @@ async function extrairTextoPDF(url) {
 
 async function analisarImagem(url) {
   try {
-    // usa URL remota
-    const [result] = await visionClient.textDetection({ image: { source: { imageUri: url } } });
+    // faz download antes de analisar
+    const resp = await axios.get(url, { responseType: "arraybuffer" });
+    const [result] = await visionClient.textDetection({ image: { content: resp.data } });
     return result.textAnnotations?.[0]?.description || null;
   } catch (err) {
     console.error("[ERRO] Análise de imagem falhou:", err.message);
@@ -123,54 +126,41 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
-    if (!payload?.user || !payload?.message) {
+    if (!payload?.user || !(payload.message || payload.Message)) {
       console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
       return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
     }
 
     const user = payload.user;
-    const message = payload.message;
+    const message = payload.message || payload.Message;
     const vendedorRaw = payload.attendant?.Name || "";
     const nomeCliente = user.Name || "Cliente";
     const texto = message.text || message.caption || "[attachment]";
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // processa anexos
     let contextoExtra = "";
-    if (message.attachments?.length) {
-      for (const a of message.attachments) {
-        if (a.type === "audio" && a.payload?.url) {
-          const t = await transcreverAudio(a.payload.url);
-          if (t) {
-            console.log("[TRANSCRICAO]", t);
-            contextoExtra += t + "\n";
-          }
-        }
-        if (a.type === "file" && a.payload?.url && a.payload.FileName?.toLowerCase().endsWith(".pdf")) {
-          const t = await extrairTextoPDF(a.payload.url);
-          if (t) {
-            console.log("[PDF-TEXTO]", t);
-            contextoExtra += t + "\n";
-          }
-        }
-        if (a.type === "image" && a.payload?.url) {
-          const t = await analisarImagem(a.payload.url);
-          if (t) {
-            console.log("[IMAGEM-TEXTO]", t);
-            contextoExtra += t + "\n";
-          }
-        }
+    const anexos = message.attachments || [];
+    for (const a of anexos) {
+      if (a.type === "audio" && a.payload?.url) {
+        const t = await transcreverAudio(a.payload.url);
+        if (t) contextoExtra += t + "\n";
+      }
+      if (a.type === "file" && a.payload?.url && a.payload.FileName?.toLowerCase().endsWith(".pdf")) {
+        const t = await extrairTextoPDF(a.payload.url);
+        if (t) contextoExtra += t + "\n";
+      }
+      if (a.type === "image" && a.payload?.url) {
+        const t = await analisarImagem(a.payload.url);
+        if (t) contextoExtra += t + "\n";
       }
     }
 
-    // detecta se aguarda orçamento
     const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
     if (!aguardando) {
       console.log("[INFO] Cliente não aguarda orçamento. Sem alertas.");
       return res.json({ status: "Sem ação necessária." });
     }
 
-    // mapeia vendedor
     const nomeVendNorm = normalizeNome(vendedorRaw);
     const numeroVendedor = VENDEDORES[nomeVendNorm];
     if (!numeroVendedor) {
@@ -178,11 +168,9 @@ app.post("/conversa", async (req, res) => {
       return res.json({ warning: "Vendedor não mapeado." });
     }
 
-    // calcula horas úteis
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
     const horas = horasUteisEntreDatas(criadoEm, Date.now());
 
-    // envia alertas
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, vendedorRaw));
       setTimeout(
