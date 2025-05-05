@@ -17,10 +17,10 @@ app.use(bodyParser.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const Vision = require("@google-cloud/vision");
-
 const vision = new Vision.ImageAnnotatorClient({
   credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
 });
+
 
 const client = new vision.ImageAnnotatorClient({
   credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
