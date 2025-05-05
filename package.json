@@ -16,6 +16,7 @@
     "google-auth-library": "^8.8.0",
     "mammoth": "^1.6.0",
     "multer": "^1.4.5-lts.1",
+    "openai": "^4.25.1",
     "pdf-parse": "^1.1.1",
     "tesseract.js": "^4.1.1",
     "whisper-node": "^1.0.5"
