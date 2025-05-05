@@ -49,7 +49,8 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 function log(msg) { console.log("[LOG]", msg); }
 function logErro(msg) { console.error("[ERRO]", msg); }
 
-// Baixa arquivo remoto como Buffer\async function baixarBuffer(url) {
+// Baixa arquivo remoto como Buffer
+async function baixarBuffer(url) {
   const res = await axios.get(url, { responseType: 'arraybuffer' });
   return Buffer.from(res.data);
 }
