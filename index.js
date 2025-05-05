@@ -1,37 +1,26 @@
-// 1) Imports iniciais
-const fs = require("fs");
+// Carrega variáveis de ambiente
+require("dotenv").config();
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
-const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
 const { OpenAI } = require("openai");
-require("dotenv").config();
 
-// 2) Configurações do Express
 const app = express();
+
+// Limites para payloads grandes (áudio, PDF, imagens em base64)
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
-// 3) Grava credenciais do Google em arquivo temporário
-const gcloudCreds = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-const credPath = "/tmp/gcloud_creds.json";
-fs.writeFileSync(credPath, JSON.stringify(gcloudCreds));
+// Instância do cliente OpenAI
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
-// 4) Aponta o SDK para esse arquivo
-process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
-
-// 5) Importa e instancia o único Vision Client
-const Vision = require("@google-cloud/vision");
-const vision = new Vision.ImageAnnotatorClient();
-
-// 6) Instancia o OpenAI
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-// 7) Outras variáveis de ambiente
+// Configurações de WhatsApp (exemplo) e mapeamento de vendedores
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
-
 
 const VENDEDORES = {
   "cindy loren": "5562994671766",
@@ -40,187 +29,170 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035",
 };
 
+// Templates de mensagens de alerta
 const MENSAGENS = {
   alerta1: (c, v) =>
     `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
   alerta2: (c, v) =>
-    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
+    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
   alertaFinal: (c, v) =>
-    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
+    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis sem orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
   alertaGestores: (c, v) =>
     `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`,
 };
 
-function horasUteisEntreDatas(inicio, fim) {
-  const start = new Date(inicio);
-  const end = new Date(fim);
-  let horas = 0;
-  const cur = new Date(start);
-  while (cur < end) {
-    const dia = cur.getDay();
-    const hora = cur.getHours();
-    if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) horas++;
-    cur.setHours(cur.getHours() + 1);
-  }
-  return horas;
+// Funções de log
+function log(msg) {
+  console.log("[LOG]", msg);
 }
 
-function normalizeNome(nome) {
-  return nome?.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+function logErro(msg) {
+  console.error("[ERRO]", msg);
 }
 
-async function enviarMensagem(numero, texto) {
-  if (!numero || !/^[0-9]{11,13}$/.test(numero)) return;
-  try {
-    await axios.post(`${WPP_URL}/send-message`, {
-      number: numero,
-      message: texto,
-    });
-  } catch (err) {
-    console.error("Erro ao enviar:", err.message);
-  }
+// Validação mínima do payload recebido
+function isValidPayload(payload) {
+  return payload?.user?.Name && payload?.attendant?.Name && payload?.message;
 }
 
-async function transcreverAudio(url) {
-  try {
-    const resp = await axios.get(url, { responseType: "arraybuffer" });
-    const form = new FormData();
-    form.append("file", Buffer.from(resp.data), {
-      filename: "audio.ogg",
-      contentType: "audio/ogg",
-    });
-    form.append("model", "whisper-1");
-    const result = await axios.post(
-      "https://api.openai.com/v1/audio/transcriptions",
-      form,
-      {
-        headers: {
-          ...form.getHeaders(),
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-      }
-    );
-    return result.data.text;
-  } catch {
-    return null;
-  }
-}
-
-async function extrairTextoPDF(url) {
-  try {
-    const resp = await axios.get(url, { responseType: "arraybuffer" });
-    const data = await pdfParse(resp.data);
-    return data.text;
-  } catch {
-    return null;
-  }
-}
-
-async function analisarImagem(url) {
-  try {
-    const [result] = await vision.textDetection(url);
-    const detections = result.textAnnotations;
-    return detections?.[0]?.description || null;
-  } catch (err) {
-    console.error("[ERRO] Análise de imagem falhou:", err.message);
-    return null;
-  }
-}
-
-async function isWaitingForQuote(cliente, mensagem, contexto) {
+// Função genérica para chamar a OpenAI e obter resposta
+async function analisarTexto(texto) {
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4",
       messages: [
         {
           role: "system",
           content:
-            "Você é um Gerente Comercial IA que identifica se um cliente está aguardando um orçamento.",
+            "Você é um gerente comercial que avalia a qualidade de atendimento com base no conteúdo recebido.",
         },
-        {
-          role: "user",
-          content: `Cliente: ${cliente}\nMensagem: ${mensagem}\nContexto: ${contexto || ""
-            }`,
-        },
+        { role: "user", content: texto },
       ],
     });
-    const reply = completion.choices[0].message.content.toLowerCase();
-    return reply.includes("sim") || reply.includes("aguard");
-  } catch {
-    return false;
+    return (
+      completion.choices[0]?.message?.content?.trim() || "[Sem resposta]"
+    );
+  } catch (err) {
+    logErro(`Erro ao chamar OpenAI: ${err.message}`);
+    return "[Erro na IA]";
   }
 }
 
+// Rota principal de webhook
 app.post("/conversa", async (req, res) => {
+  let payload;
+
+  // Tenta parsear se vier stringificada
   try {
-    const payload = req.body.payload;
-    const message = payload.Message || payload.message;
-    const user = payload.user;
-    const vendedorRaw = payload.attendant?.Name || "";
-
-    if (!message || !user) {
-      console.error("[ERRO] Payload incompleto:", req.body);
-      return res.status(400).json({ error: "Payload incompleto" });
-    }
-
-    const nomeCliente = user.Name || "Cliente";
-    const texto = message.text || message.caption || "[attachment]";
-    const nomeVendedor = normalizeNome(vendedorRaw);
-    const numeroVendedor = VENDEDORES[nomeVendedor];
-
-    console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
-
-    let contextoExtra = "";
-    if (message.attachments?.length) {
-      for (const a of message.attachments) {
-        if (a.type === "audio" && a.payload?.url) {
-          const t = await transcreverAudio(a.payload.url);
-          if (t) contextoExtra += t;
-        }
-        if (a.type === "file" && a.payload?.url && a.payload.FileName?.endsWith(".pdf")) {
-          const t = await extrairTextoPDF(a.payload.url);
-          if (t) contextoExtra += t;
-        }
-        if (a.type === "image" && a.payload?.url) {
-          const t = await analisarImagem(a.payload.url);
-          if (t) contextoExtra += t;
-        }
-      }
-    }
-
-    const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
-    if (!aguardando) return res.json({ status: "Sem alerta" });
-
-    if (!numeroVendedor) {
-      console.warn(`[ERRO] Vendedor "${vendedorRaw}" não está mapeado.`);
-      return res.json({ warning: "Vendedor não mapeado." });
-    }
-
-    const criadoEm = new Date(message.CreatedAt || payload.timestamp);
-    const horas = horasUteisEntreDatas(criadoEm, new Date());
-
-    if (horas >= 18) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, vendedorRaw));
-      setTimeout(
-        () =>
-          enviarMensagem(
-            GRUPO_GESTORES_ID,
-            MENSAGENS.alertaGestores(nomeCliente, vendedorRaw)
-          ),
-        10 * 60 * 1000
-      );
-    } else if (horas >= 12) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, vendedorRaw));
-    } else if (horas >= 6) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, vendedorRaw));
-    }
-
-    res.json({ status: "Processado" });
+    payload = req.body.payload
+      ? JSON.parse(req.body.payload)
+      : req.body;
   } catch (err) {
-    console.error("[ERRO] Falha no processamento:", err.message);
-    res.status(500).json({ error: "Erro interno." });
+    logErro("Erro ao fazer parse do payload.");
+    return res.status(400).send("Payload inválido.");
+  }
+
+  if (!isValidPayload(payload)) {
+    logErro("Payload incompleto.");
+    return res.status(400).send("Payload inválido.");
+  }
+
+  const { user, attendant, message } = payload;
+  const nomeCliente = user.Name;
+  const nomeVendedor = attendant.Name;
+  const textoMensagem = message.text || "";
+  const attachments = message.attachments || [];
+
+  log(`Nova mensagem recebida de ${nomeCliente}: "${textoMensagem || "[attachment]"}"`);
+
+  try {
+    // Tratamento de áudio
+    if (message.type === "audio") {
+      const audioUrl = attachments[0]?.url;
+      if (!audioUrl) throw new Error("URL de áudio não encontrada.");
+
+      const audioRes = await axios.get(audioUrl, {
+        responseType: "arraybuffer",
+      });
+      const transcription = await openai.audio.transcriptions.create({
+        file: Buffer.from(audioRes.data),
+        model: "whisper-1",
+        response_format: "text",
+      });
+
+      const respostaIA = await analisarTexto(transcription);
+      log(`[LOG] Resposta da IA ao áudio: ${respostaIA}`);
+    }
+
+    // Tratamento de PDF
+    else if (
+      message.type === "file" &&
+      attachments[0]?.type === "application/pdf"
+    ) {
+      const pdfUrl = attachments[0]?.url;
+      const pdfRes = await axios.get(pdfUrl, {
+        responseType: "arraybuffer",
+      });
+      const data = await pdfParse(Buffer.from(pdfRes.data));
+      const respostaIA = await analisarTexto(data.text || "");
+      log(`[LOG] Resposta da IA ao PDF: ${respostaIA}`);
+    }
+
+    // Tratamento de imagem via API REST do Vision
+    else if (message.type === "image") {
+      const apiKey = process.env.VISION_API_KEY;
+      const imgUrl = attachments[0]?.url;
+      if (!imgUrl) throw new Error("URL da imagem não encontrada.");
+
+      // Busca a imagem e converte para Base64
+      const imgRes = await axios.get(imgUrl, {
+        responseType: "arraybuffer",
+      });
+      const contentB64 = Buffer.from(imgRes.data).toString("base64");
+
+      // Chama a API REST do Google Vision
+      const visionRes = await axios.post(
+        `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
+        {
+          requests: [
+            {
+              image: { content: contentB64 },
+              features: [{ type: "TEXT_DETECTION" }],
+            },
+          ],
+        }
+      );
+
+      const annotations =
+        visionRes.data.responses[0].textAnnotations || [];
+      const textoImg =
+        annotations[0]?.description || "Nenhum texto encontrado.";
+
+      const respostaIA = await analisarTexto(textoImg);
+      log(`[LOG] Texto detectado na imagem: ${textoImg}`);
+      log(`[LOG] Resposta da IA à imagem: ${respostaIA}`);
+    }
+
+    // Tratamento de texto simples
+    else if (textoMensagem) {
+      const respostaIA = await analisarTexto(textoMensagem);
+      log(`[LOG] Resposta da IA ao texto: ${respostaIA}`);
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    logErro(`Erro geral de análise: ${err.message}`);
+    res.status(500).send("Erro na análise.");
   }
 });
 
+// Endpoint de health check
+app.get("/", (req, res) => {
+  res.send("Gerente Comercial IA ativo.");
+});
+
+// Inicia o servidor
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Servidor rodando na porta", PORT));
+app.listen(PORT, () => {
+  console.log(`[LOG] Servidor iniciado na porta ${PORT}`);
+});
