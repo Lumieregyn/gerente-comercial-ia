@@ -12,8 +12,8 @@ app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
 // --- Google Vision setup via arquivo temporário ---
-const Vision = require("@google-cloud/vision");
-const gcloudCreds = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+// depois de escrever /tmp/gcloud_creds.json e setar env var:
+const vision = new Vision.ImageAnnotatorClient();
 const credPath = "/tmp/gcloud_creds.json";
 fs.writeFileSync(credPath, JSON.stringify(gcloudCreds));
 const vision = new Vision.ImageAnnotatorClient({ keyFilename: credPath });
