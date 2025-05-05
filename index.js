@@ -3,13 +3,13 @@ const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
-const Vision = require("@google-cloud/vision");
 
+const Vision = require("@google-cloud/vision");
 const vision = new Vision.ImageAnnotatorClient({
   credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
 });
-const { OpenAI } = require("openai");
 
+const { OpenAI } = require("openai");
 require("dotenv").config();
 
 const app = express();
