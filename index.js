@@ -3,18 +3,22 @@ const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
-
-const Vision = require("@google-cloud/vision");
-const vision = new Vision.ImageAnnotatorClient({
-  credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
-});
-
 const { OpenAI } = require("openai");
+const fs = require("fs");                         // <<< adicionado
 require("dotenv").config();
 
 const app = express();
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: "50mb" }));
+app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
+// --- Google Vision setup via arquivo temporário ---
+const Vision = require("@google-cloud/vision");
+const gcloudCreds = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
+const credPath = "/tmp/gcloud_creds.json";
+fs.writeFileSync(credPath, JSON.stringify(gcloudCreds));
+const vision = new Vision.ImageAnnotatorClient({ keyFilename: credPath });
+
+// --- OpenAI setup ---
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 
