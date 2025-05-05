@@ -1,4 +1,3 @@
-// Carrega variáveis de ambiente
 require("dotenv").config();
 
 const express = require("express");
@@ -9,19 +8,17 @@ const { OpenAI } = require("openai");
 
 const app = express();
 
-// Limites para payloads grandes (áudio, PDF, imagens em base64)
+// Permite payloads grandes (audio, PDF, imagens em base64)
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
-// Instância do cliente OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Cliente OpenAI
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Configurações de WhatsApp (exemplo) e mapeamento de vendedores
-const WPP_URL = process.env.WPP_URL;
-const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
+// Chave da Vision API (REST)
+const VISION_API_KEY = process.env.VISION_API_KEY;
 
+// Mapeamento de vendedores e templates de mensagem
 const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
@@ -29,7 +26,6 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035",
 };
 
-// Templates de mensagens de alerta
 const MENSAGENS = {
   alerta1: (c, v) =>
     `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
@@ -45,17 +41,20 @@ const MENSAGENS = {
 function log(msg) {
   console.log("[LOG]", msg);
 }
-
 function logErro(msg) {
   console.error("[ERRO]", msg);
 }
 
-// Validação mínima do payload recebido
+// Validação básica do payload
 function isValidPayload(payload) {
-  return payload?.user?.Name && payload?.attendant?.Name && payload?.message;
+  return (
+    payload?.user?.Name &&
+    payload?.attendant?.Name &&
+    payload?.message?.type
+  );
 }
 
-// Função genérica para chamar a OpenAI e obter resposta
+// Chama a OpenAI para analisar texto
 async function analisarTexto(texto) {
   try {
     const completion = await openai.chat.completions.create({
@@ -78,18 +77,27 @@ async function analisarTexto(texto) {
   }
 }
 
-// Rota principal de webhook
+// Endpoint de webhook
 app.post("/conversa", async (req, res) => {
   let payload;
 
-  // Tenta parsear se vier stringificada
-  try {
-    payload = req.body.payload
-      ? JSON.parse(req.body.payload)
-      : req.body;
-  } catch (err) {
-    logErro("Erro ao fazer parse do payload.");
-    return res.status(400).send("Payload inválido.");
+  // Parse robusto de payload (string ou objeto)
+  if (req.body.payload) {
+    if (typeof req.body.payload === "string") {
+      try {
+        payload = JSON.parse(req.body.payload);
+      } catch (err) {
+        logErro("Erro ao fazer parse do payload JSON string.");
+        return res.status(400).send("Payload JSON inválido.");
+      }
+    } else if (typeof req.body.payload === "object") {
+      payload = req.body.payload;
+    } else {
+      logErro("Formato de payload inesperado.");
+      return res.status(400).send("Payload inválido.");
+    }
+  } else {
+    payload = req.body;
   }
 
   if (!isValidPayload(payload)) {
@@ -100,14 +108,17 @@ app.post("/conversa", async (req, res) => {
   const { user, attendant, message } = payload;
   const nomeCliente = user.Name;
   const nomeVendedor = attendant.Name;
-  const textoMensagem = message.text || "";
-  const attachments = message.attachments || [];
+  const { type, text: textoMensagem = "", attachments = [] } = message;
 
-  log(`Nova mensagem recebida de ${nomeCliente}: "${textoMensagem || "[attachment]"}"`);
+  log(
+    `Nova mensagem recebida de ${nomeCliente}: "${
+      textoMensagem || "[attachment]"
+    }"`
+  );
 
   try {
-    // Tratamento de áudio
-    if (message.type === "audio") {
+    // Áudio via Whisper
+    if (type === "audio") {
       const audioUrl = attachments[0]?.url;
       if (!audioUrl) throw new Error("URL de áudio não encontrada.");
 
@@ -124,35 +135,27 @@ app.post("/conversa", async (req, res) => {
       log(`[LOG] Resposta da IA ao áudio: ${respostaIA}`);
     }
 
-    // Tratamento de PDF
-    else if (
-      message.type === "file" &&
-      attachments[0]?.type === "application/pdf"
-    ) {
-      const pdfUrl = attachments[0]?.url;
-      const pdfRes = await axios.get(pdfUrl, {
-        responseType: "arraybuffer",
-      });
+    // PDF via pdf-parse
+    else if (type === "file" && attachments[0]?.type === "application/pdf") {
+      const pdfUrl = attachments[0].url;
+      const pdfRes = await axios.get(pdfUrl, { responseType: "arraybuffer" });
       const data = await pdfParse(Buffer.from(pdfRes.data));
       const respostaIA = await analisarTexto(data.text || "");
       log(`[LOG] Resposta da IA ao PDF: ${respostaIA}`);
     }
 
-    // Tratamento de imagem via API REST do Vision
-    else if (message.type === "image") {
-      const apiKey = process.env.VISION_API_KEY;
+    // Imagem via REST API do Google Vision
+    else if (type === "image") {
       const imgUrl = attachments[0]?.url;
       if (!imgUrl) throw new Error("URL da imagem não encontrada.");
 
-      // Busca a imagem e converte para Base64
       const imgRes = await axios.get(imgUrl, {
         responseType: "arraybuffer",
       });
       const contentB64 = Buffer.from(imgRes.data).toString("base64");
 
-      // Chama a API REST do Google Vision
       const visionRes = await axios.post(
-        `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
+        `https://vision.googleapis.com/v1/images:annotate?key=${VISION_API_KEY}`,
         {
           requests: [
             {
@@ -173,26 +176,26 @@ app.post("/conversa", async (req, res) => {
       log(`[LOG] Resposta da IA à imagem: ${respostaIA}`);
     }
 
-    // Tratamento de texto simples
+    // Texto simples
     else if (textoMensagem) {
       const respostaIA = await analisarTexto(textoMensagem);
       log(`[LOG] Resposta da IA ao texto: ${respostaIA}`);
     }
 
-    res.sendStatus(200);
+    return res.sendStatus(200);
   } catch (err) {
     logErro(`Erro geral de análise: ${err.message}`);
-    res.status(500).send("Erro na análise.");
+    return res.status(500).send("Erro na análise.");
   }
 });
 
-// Endpoint de health check
+// Health check
 app.get("/", (req, res) => {
   res.send("Gerente Comercial IA ativo.");
 });
 
-// Inicia o servidor
+// Inicia servidor
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`[LOG] Servidor iniciado na porta ${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log(`[LOG] Servidor iniciado na porta ${PORT}`)
+);
