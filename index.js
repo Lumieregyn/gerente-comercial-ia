@@ -4,10 +4,10 @@ const axios = require("axios");
 const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
 const Vision = require("@google-cloud/vision");
+
 const vision = new Vision.ImageAnnotatorClient({
   credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
 });
-
 const { OpenAI } = require("openai");
 
 require("dotenv").config();
@@ -17,6 +17,8 @@ app.use(bodyParser.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+  credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
+});
 
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
@@ -106,7 +108,7 @@ async function extrairTextoPDF(url) {
 
 async function analisarImagem(url) {
   try {
-    const [result] = await visionClient.textDetection(url);
+    const [result] = await vision.textDetection(url);
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
   } catch (err) {
