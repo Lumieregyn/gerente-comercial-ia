@@ -107,7 +107,7 @@ async function extrairTextoPDF(url) {
 
 async function analisarImagem(url) {
   try {
-    const [result] = await visionClient.textDetection(url);
+    const [result] = await vision.textDetection(url);
     const detections = result.textAnnotations;
     return detections?.[0]?.description || null;
   } catch (err) {
