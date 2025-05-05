@@ -189,6 +189,8 @@ app.post("/conversa", async (req, res) => {
     const texto = message.text || message.caption || "";
     const attachments = message.attachments || [];
     const fileInfo = message.file || attachments[0] || null;
+    // Extrai URL de anexo, pode estar em fileInfo.url ou fileInfo.payload.url
+    const fileUrl = fileInfo?.url || fileInfo?.payload?.url || null;
 
     log(`Mensagem de ${nomeCliente}: "${texto || "[attachment]"}"`);
 
