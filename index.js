@@ -1,3 +1,4 @@
+// index.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -12,7 +13,10 @@ app.use(bodyParser.json());
 
 // clients
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const visionClient = new vision.ImageAnnotatorClient();
+const visionClient = new vision.ImageAnnotatorClient({
+  // autodedução de credenciais pelo GOOGLE_APPLICATION_CREDENTIALS_JSON
+  credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
+});
 
 // env
 const WPP_URL = process.env.WPP_URL;
@@ -102,9 +106,13 @@ async function extrairTextoPDF(url) {
 
 async function analisarImagem(url) {
   try {
-    const [result] = await visionClient.textDetection(url);
-    const detections = result.textAnnotations;
-    return detections?.[0]?.description || null;
+    // download do arquivo
+    const resp = await axios.get(url, { responseType: "arraybuffer" });
+    const buffer = resp.data;
+    // OCR via Vision API com buffer
+    const [result] = await visionClient.textDetection({ image: { content: buffer } });
+    const detections = result.textAnnotations || [];
+    return detections[0]?.description || null;
   } catch (err) {
     console.error("[ERRO] Análise de imagem falhou:", err.message);
     return null;
@@ -112,53 +120,39 @@ async function analisarImagem(url) {
 }
 
 async function isWaitingForQuote(cliente, mensagem, contexto) {
- try {
-    // GPT-4V pode receber a URL diretamente como mensagem
+  try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",              // ou "gpt-4v" se disponível
+      model: "gpt-4o",
       messages: [
-        {
-          role: "system",
-          content:
-            "Você é um assistente especializado em extrair todo o texto de imagens."
-        },
-        {
-          role: "user",
-          content: `Por favor, extraia todo o texto desta imagem: ${url}`
-        }
+        { role: "system", content: "Você é Gerente Comercial IA: detecte se cliente está aguardando orçamento." },
+        { role: "user", content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? "\nContexto: " + contexto : ""}` }
       ]
     });
-
-    // Conteúdo retornado pelo GPT-4V já é o texto extraído
-    return completion.choices[0].message.content.trim();
+    const reply = completion.choices[0].message.content.toLowerCase();
+    return reply.includes("sim") || reply.includes("aguard");
   } catch (err) {
-    console.error("[ERRO] OCR via GPT-4V falhou:", err.message);
-    return null;
+    console.error("[ERRO] Análise de intenção falhou:", err.message);
+    return false;
   }
+}
 
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
-    if (
-      !payload ||
-      !payload.user ||
-      !(payload.message || payload.Message) ||
-      !payload.channel
-    ) {
+    if (!payload || !payload.user || !(payload.message || payload.Message) || !payload.channel) {
       console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
       return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
     }
 
-    // unifica Message / message
     const message = payload.message || payload.Message;
     const user = payload.user;
     const attendant = payload.attendant || {};
 
     const nomeCliente = user.Name || "Cliente";
+    const nomeVendedorRaw = attendant.Name || "";
     const texto = message.text || message.caption || "[attachment]";
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // prepara contexto extra
     let contextoExtra = "";
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
@@ -169,11 +163,7 @@ app.post("/conversa", async (req, res) => {
             contextoExtra += "\n" + t;
           }
         }
-        if (
-          a.type === "file" &&
-          a.payload?.url &&
-          a.FileName?.toLowerCase().endsWith(".pdf")
-        ) {
+        if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
             console.log("[PDF-TEXTO]", t);
@@ -190,7 +180,6 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
-    // verifica se cliente aguarda orçamento
     const aguardando = await isWaitingForQuote(nomeCliente, texto, contextoExtra);
     if (!aguardando) {
       console.log("[INFO] Cliente não aguarda orçamento. Sem alertas.");
@@ -198,7 +187,6 @@ app.post("/conversa", async (req, res) => {
     }
 
     // mapeia vendedor
-    const nomeVendedorRaw = attendant.Name || "";
     const keyVend = normalizeNome(nomeVendedorRaw);
     const numeroVendedor = VENDEDORES[keyVend];
     if (!numeroVendedor) {
@@ -210,6 +198,7 @@ app.post("/conversa", async (req, res) => {
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
     const horas = horasUteisEntreDatas(criadoEm, new Date());
 
+    // dispara alertas
     // dispara alertas
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorRaw));
