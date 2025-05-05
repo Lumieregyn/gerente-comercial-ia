@@ -90,7 +90,7 @@ async function ocrImagemGPT(url) {
   }
 }
 
-// Chama GPT-4 para análise de texto
+// Análise de texto com GPT-4
 async function analisarTexto(texto) {
   try {
     const completion = await openai.chat.completions.create({
@@ -137,7 +137,8 @@ function normalizeNome(nome = "") {
   return nome.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
 }
 
-// Envia mensagem WhatsApp\async function enviarMensagem(numero, texto) {
+// Envia mensagem WhatsApp
+async function enviarMensagem(numero, texto) {
   if (!numero || !/^[0-9]{11,13}$/.test(numero)) {
     logErro("Número inválido: " + numero);
     return;
@@ -222,10 +223,7 @@ app.post("/conversa", async (req, res) => {
     // Dispara alertas
     if (horas >= 18) {
       await enviarMensagem(numVend, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorRaw));
-      setTimeout(() => 
-        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedorRaw)),
-        10 * 60 * 1000
-      );
+      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedorRaw)), 10 * 60 * 1000);
     } else if (horas >= 12) {
       await enviarMensagem(numVend, MENSAGENS.alerta2(nomeCliente, nomeVendedorRaw));
     } else if (horas >= 6) {
