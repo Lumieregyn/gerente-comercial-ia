@@ -1,29 +1,37 @@
+// 1) Imports iniciais
+const fs = require("fs");
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
 const { OpenAI } = require("openai");
-const fs = require("fs");                         // <<< adicionado
 require("dotenv").config();
 
+// 2) Configurações do Express
 const app = express();
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
 
-// --- Google Vision setup via arquivo temporário ---
-// depois de escrever /tmp/gcloud_creds.json e setar env var:
-const vision = new Vision.ImageAnnotatorClient();
+// 3) Grava credenciais do Google em arquivo temporário
+const gcloudCreds = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
 const credPath = "/tmp/gcloud_creds.json";
 fs.writeFileSync(credPath, JSON.stringify(gcloudCreds));
-const vision = new Vision.ImageAnnotatorClient({ keyFilename: credPath });
 
-// --- OpenAI setup ---
+// 4) Aponta o SDK para esse arquivo
+process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
+
+// 5) Importa e instancia o único Vision Client
+const Vision = require("@google-cloud/vision");
+const vision = new Vision.ImageAnnotatorClient();
+
+// 6) Instancia o OpenAI
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-
+// 7) Outras variáveis de ambiente
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
+
 
 const VENDEDORES = {
   "cindy loren": "5562994671766",
