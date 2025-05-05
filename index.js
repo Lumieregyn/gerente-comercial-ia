@@ -1,4 +1,4 @@
-// index.js – Versão final completa (~240 linhas)
+// index.js – Versão final completa (~250 linhas)
 // Gerente Comercial IA: texto, áudio (Whisper), PDF (pdf-parse) e imagem (GPT-4V)
 
 require("dotenv").config();
@@ -27,6 +27,18 @@ const VENDEDORES = {
   "ana clara martins": "5562991899053",
   "emily sequeira": "5562981704171",
   "fernando fonseca": "5562985293035"
+};
+
+// Templates de mensagens de alerta
+const MENSAGENS = {
+  alerta1: (c, v) =>
+    `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
+  alerta2: (c, v) =>
+    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
+  alertaFinal: (c, v) =>
+    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
+  alertaGestores: (c, v) =>
+    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
 };
 
 // Cliente OpenAI
