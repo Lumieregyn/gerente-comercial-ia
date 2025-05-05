@@ -2,22 +2,22 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
+const fs = require("fs");
+const path = require("path");
 const pdfParse = require("pdf-parse");
+const mammoth = require("mammoth");
+const multer = require("multer");
+const { OpenAI } = require("openai");
 const Vision = require("@google-cloud/vision");
+
 const vision = new Vision.ImageAnnotatorClient({
   credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
 });
-const { OpenAI } = require("openai");
 
 require("dotenv").config();
 
 const app = express();
 app.use(bodyParser.json());
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-  credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
-});
 
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
