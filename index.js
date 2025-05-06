@@ -5,6 +5,7 @@ const axios = require("axios");
 const FormData = require("form-data");
 const pdfParse = require("pdf-parse");
 const { OpenAI } = require("openai");
+const Tesseract = require("tesseract.js");
 require("dotenv").config();
 
 const app = express();
@@ -101,16 +102,11 @@ async function extrairTextoPDF(url) {
 
 async function analisarImagem(url) {
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "Você extrai todo o texto de uma imagem." },
-        { role: "user", content: `Extraia o texto desta imagem: ${url}` }
-      ]
-    });
-    return response.choices[0].message.content.trim();
+    const resp = await axios.get(url, { responseType: "arraybuffer" });
+    const { data: { text } } = await Tesseract.recognize(Buffer.from(resp.data), 'eng');
+    return text.trim();
   } catch (err) {
-    console.error("[ERRO] Análise de imagem GPT-4o falhou:", err.message);
+    console.error("[ERRO] Análise de imagem via Tesseract falhou:", err.message);
     return null;
   }
 }
@@ -141,12 +137,7 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
-    if (
-      !payload ||
-      !payload.user ||
-      !(payload.message || payload.Message) ||
-      !payload.channel
-    ) {
+    if (!payload || !payload.user || !(payload.message || payload.Message) || !payload.channel) {
       console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
       return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
     }
@@ -169,11 +160,7 @@ app.post("/conversa", async (req, res) => {
             contextoExtra += "\n" + t;
           }
         }
-        if (
-          a.type === "file" &&
-          a.payload?.url &&
-          a.FileName?.toLowerCase().endsWith(".pdf")
-        ) {
+        if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
             console.log("[PDF-TEXTO]", t);
