@@ -176,6 +176,23 @@ app.post("/conversa", async (req, res) => {
           const t = await analisarImagem(a.payload.url);
           if (t) {
             contextoExtra += "\n" + t;
+          } else {
+            try {
+              const resp = await axios.get(a.payload.url, { responseType: "arraybuffer" });
+              const base64 = Buffer.from(resp.data).toString("base64");
+
+              const respostaGPT = await axios.post(`${process.env.API_URL || "http://localhost:3000"}/analisar-imagem`, {
+                imagemBase64: base64
+              });
+
+              const descricaoVisual = respostaGPT.data.descricao;
+              if (descricaoVisual) {
+                console.log("[GPT-4V]", descricaoVisual);
+                contextoExtra += "\n" + descricaoVisual;
+              }
+            } catch (erroGPT) {
+              console.error("[ERRO GPT-4V]", erroGPT.message);
+            }
           }
         }
       }
@@ -217,7 +234,6 @@ app.post("/conversa", async (req, res) => {
   }
 });
 
-// NOVO ENDPOINT: Análise com GPT-4 Vision
 app.post("/analisar-imagem", async (req, res) => {
   try {
     const { imagemBase64 } = req.body;
