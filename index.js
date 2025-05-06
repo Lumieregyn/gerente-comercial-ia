@@ -11,14 +11,11 @@ require("dotenv").config();
 const app = express();
 app.use(bodyParser.json());
 
-// clients
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// env
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
-// mapeamento de vendedores
 const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
@@ -26,7 +23,6 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-// templates de mensagem
 const MENSAGENS = {
   alerta1: (c, v) =>
     `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
@@ -52,11 +48,7 @@ function horasUteisEntreDatas(inicio, fim) {
 }
 
 function normalizeNome(nome = "") {
-  return nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
+  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 }
 
 async function enviarMensagem(numero, texto) {
@@ -150,12 +142,7 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
-    if (
-      !payload ||
-      !payload.user ||
-      !(payload.message || payload.Message) ||
-      !payload.channel
-    ) {
+    if (!payload || !payload.user || !(payload.message || payload.Message) || !payload.channel) {
       console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
       return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
     }
@@ -178,11 +165,7 @@ app.post("/conversa", async (req, res) => {
             contextoExtra += "\n" + t;
           }
         }
-        if (
-          a.type === "file" &&
-          a.payload?.url &&
-          a.FileName?.toLowerCase().endsWith(".pdf")
-        ) {
+        if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
             console.log("[PDF-TEXTO]", t);
@@ -217,12 +200,8 @@ app.post("/conversa", async (req, res) => {
 
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorRaw));
-      setTimeout(
-        () =>
-          enviarMensagem(
-            GRUPO_GESTORES_ID,
-            MENSAGENS.alertaGestores(nomeCliente, nomeVendedorRaw)
-          ),
+      setTimeout(() =>
+        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedorRaw)),
         10 * 60 * 1000
       );
     } else if (horas >= 12) {
@@ -235,6 +214,46 @@ app.post("/conversa", async (req, res) => {
   } catch (err) {
     console.error("[ERRO] Falha ao processar:", err.message);
     res.status(500).json({ error: "Erro interno." });
+  }
+});
+
+// NOVO ENDPOINT: Análise com GPT-4 Vision
+app.post("/analisar-imagem", async (req, res) => {
+  try {
+    const { imagemBase64 } = req.body;
+
+    if (!imagemBase64) {
+      return res.status(400).json({ erro: "Imagem não enviada." });
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4-vision-preview",
+      messages: [
+        {
+          role: "system",
+          content: "Você é um especialista técnico em iluminação. Descreva o tipo de luminária, cor, modelo e aplicação do produto na imagem."
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Analise e descreva tecnicamente essa luminária:" },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:image/png;base64,${imagemBase64}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 500
+    });
+
+    const resposta = completion.choices[0].message.content;
+    res.json({ descricao: resposta });
+  } catch (err) {
+    console.error("[ERRO GPT-4V]", err.message);
+    res.status(500).json({ erro: "Erro ao analisar imagem com GPT-4 Vision." });
   }
 });
 
