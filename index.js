@@ -1,4 +1,3 @@
-// index.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -11,14 +10,10 @@ require("dotenv").config();
 const app = express();
 app.use(bodyParser.json());
 
-// clients
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-// env
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
-// mapeamento de vendedores
 const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
@@ -26,16 +21,11 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
-// templates de mensagem
 const MENSAGENS = {
-  alerta1: (c, v) =>
-    `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
-  alerta2: (c, v) =>
-    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
-  alertaFinal: (c, v) =>
-    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
-  alertaGestores: (c, v) =>
-    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
+  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.`,
+  alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
+  alertaFinal: (c, v) => `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
+  alertaGestores: (c, v) => `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
 };
 
 function horasUteisEntreDatas(inicio, fim) {
@@ -52,11 +42,7 @@ function horasUteisEntreDatas(inicio, fim) {
 }
 
 function normalizeNome(nome = "") {
-  return nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
+  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 }
 
 async function enviarMensagem(numero, texto) {
@@ -77,11 +63,9 @@ async function transcreverAudio(url) {
     const form = new FormData();
     form.append("file", Buffer.from(resp.data), { filename: "audio.ogg", contentType: "audio/ogg" });
     form.append("model", "whisper-1");
-    const result = await axios.post(
-      "https://api.openai.com/v1/audio/transcriptions",
-      form,
-      { headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } }
-    );
+    const result = await axios.post("https://api.openai.com/v1/audio/transcriptions", form, {
+      headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
+    });
     return result.data.text;
   } catch (err) {
     console.error("[ERRO] Transcrição de áudio falhou:", err.message);
@@ -104,6 +88,7 @@ async function analisarImagem(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const { data: { text } } = await Tesseract.recognize(Buffer.from(resp.data), "eng");
+    console.log("[IMAGEM-ANALISE]", text);
     return text;
   } catch (err) {
     console.error("[ERRO] Análise de imagem falhou:", err.message);
@@ -116,14 +101,8 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        {
-          role: "system",
-          content: "Você é Gerente Comercial IA: detecte se cliente está aguardando orçamento."
-        },
-        {
-          role: "user",
-          content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? "\nContexto: " + contexto : ""}`
-        }
+        { role: "system", content: "Você é Gerente Comercial IA: detecte se cliente está aguardando orçamento." },
+        { role: "user", content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? "\nContexto: " + contexto : ""}` }
       ]
     });
     const reply = completion.choices[0].message.content.toLowerCase();
@@ -145,7 +124,6 @@ app.post("/conversa", async (req, res) => {
     const message = payload.message || payload.Message;
     const user = payload.user;
     const attendant = payload.attendant || {};
-
     const nomeCliente = user.Name || "Cliente";
     const texto = message.text || message.caption || "[attachment]";
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
@@ -170,7 +148,6 @@ app.post("/conversa", async (req, res) => {
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
           if (t) {
-            console.log("[IMAGEM-ANALISE]", t);
             contextoExtra += "\n" + t;
           }
         }
@@ -196,14 +173,7 @@ app.post("/conversa", async (req, res) => {
 
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorRaw));
-      setTimeout(
-        () =>
-          enviarMensagem(
-            GRUPO_GESTORES_ID,
-            MENSAGENS.alertaGestores(nomeCliente, nomeVendedorRaw)
-          ),
-        10 * 60 * 1000
-      );
+      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedorRaw)), 10 * 60 * 1000);
     } else if (horas >= 12) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedorRaw));
     } else if (horas >= 6) {
