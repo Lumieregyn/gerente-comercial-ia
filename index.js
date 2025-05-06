@@ -141,6 +141,24 @@ Retorne: produto, quantidade, valor unitário, valor total, cliente, CNPJ, data 
     console.error("[ERRO GPT-PDF]", err.message);
     return null;
   }
+},
+        {
+          role: "user",
+          content: `Analise o seguinte conteúdo de DANFE:
+
+${texto}
+
+Retorne: produto, quantidade, valor unitário, valor total, cliente, CNPJ, data da emissão.`
+        }
+      ],
+      max_tokens: 500
+    });
+
+    return completion.choices[0].message.content;
+  } catch (err) {
+    console.error("[ERRO GPT-PDF]", err.message);
+    return null;
+  }
 }
 }
 
