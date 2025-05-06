@@ -120,11 +120,38 @@ async function analisarImagem(url) {
   }
 }
 
-module.exports = app;
+async function isWaitingForQuote(cliente, mensagem, contexto) {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "Você é Gerente Comercial IA: detecte se cliente está aguardando orçamento."
+        },
+        {
+          role: "user",
+          content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? "\nContexto: " + contexto : ""}`
+        }
+      ]
+    });
+    const reply = completion.choices[0].message.content.toLowerCase();
+    return reply.includes("sim") || reply.includes("aguard");
+  } catch (err) {
+    console.error("[ERRO] Análise de intenção falhou:", err.message);
+    return false;
+  }
+}
+
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
-    if (!payload || !payload.user || !(payload.message || payload.Message) || !payload.channel) {
+    if (
+      !payload ||
+      !payload.user ||
+      !(payload.message || payload.Message) ||
+      !payload.channel
+    ) {
       console.error("[ERRO] Payload incompleto ou evento não suportado:", req.body);
       return res.status(400).json({ error: "Payload incompleto ou evento não suportado" });
     }
@@ -132,6 +159,7 @@ app.post("/conversa", async (req, res) => {
     const message = payload.message || payload.Message;
     const user = payload.user;
     const attendant = payload.attendant || {};
+
     const nomeCliente = user.Name || "Cliente";
     const texto = message.text || message.caption || "[attachment]";
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
@@ -146,7 +174,11 @@ app.post("/conversa", async (req, res) => {
             contextoExtra += "\n" + t;
           }
         }
-        if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
+        if (
+          a.type === "file" &&
+          a.payload?.url &&
+          a.FileName?.toLowerCase().endsWith(".pdf")
+        ) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
             console.log("[PDF-TEXTO]", t);
@@ -181,7 +213,14 @@ app.post("/conversa", async (req, res) => {
 
     if (horas >= 18) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorRaw));
-      setTimeout(() => enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedorRaw)), 10 * 60 * 1000);
+      setTimeout(
+        () =>
+          enviarMensagem(
+            GRUPO_GESTORES_ID,
+            MENSAGENS.alertaGestores(nomeCliente, nomeVendedorRaw)
+          ),
+        10 * 60 * 1000
+      );
     } else if (horas >= 12) {
       await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedorRaw));
     } else if (horas >= 6) {
