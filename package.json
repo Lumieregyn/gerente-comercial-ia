@@ -18,5 +18,6 @@
     "openai": "^4.25.1",
     "pdf-parse": "^1.1.1",
     "whisper-node": "^1.0.5"
+    "tesseract.js": "^4.0.2"
   }
 }
