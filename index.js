@@ -91,6 +91,27 @@ async function extrairTextoPDF(url) {
     return null;
   }
 }
+
+async function analisarPdfComGPT(texto) {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "Você é um assistente de vendas técnico. Analise documentos fiscais (DANFE) e extraia produto, valor, cliente, impostos, datas."
+        },
+        {
+          role: "user",
+          content: `Analise o seguinte conteúdo de DANFE:
+
+${texto}
+
+Retorne: produto, quantidade, valor unitário, valor total, cliente, CNPJ, data da emissão.`
+        }
+      ],
+      max_tokens: 500
+    });
     return completion.choices[0].message.content;
   } catch (err) {
     console.error("[ERRO GPT-PDF]", err.message);
