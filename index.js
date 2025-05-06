@@ -92,6 +92,38 @@ async function extrairTextoPDF(url) {
   }
 }
 
+async function analisarPdfComGPT(texto) {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "Você é um assistente de vendas técnico. Analise documentos fiscais (DANFE) e extraia produto, valor, cliente, impostos, datas."
+        },
+        {
+          role: "user",
+          content: `Analise o seguinte conteúdo de DANFE:
+
+${texto}
+
+Retorne: produto, quantidade, valor unitário, valor total, cliente, CNPJ, data da emissão.`
+        }
+      ],
+      max_tokens: 500
+    });
+
+    return completion.choices[0].message.content;
+  } catch (err) {
+    console.error("[ERRO GPT-PDF]", err.message);
+    return null;
+  }
+} catch (err) {
+    console.error("[ERRO] PDF parse falhou:", err.message);
+    return null;
+  }
+}
+
 async function analisarImagem(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
@@ -140,6 +172,21 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
 }
 
 app.post("/conversa", async (req, res) => {
+  const tipoEvento = req.body.type;
+  switch (tipoEvento) {
+    case "new-message":
+    case "message":
+      break; // segue fluxo normal abaixo
+    case "new-contact":
+    case "finish-attendance":
+    case "transfer-attendance":
+    case "new-session":
+      console.log(`[IGNORADO] Evento mapeado mas não processável: ${tipoEvento}`);
+      return res.status(200).json({ status: "Ignorado" });
+    default:
+      console.warn(`[ERRO] Tipo de evento desconhecido: ${tipoEvento}`);
+      return res.status(400).json({ error: "Tipo de evento não reconhecido" });
+  }
   try {
     const payload = req.body.payload;
     if (!payload || !payload.user || !(payload.message || payload.Message) || !payload.channel) {
@@ -166,10 +213,20 @@ app.post("/conversa", async (req, res) => {
           }
         }
         if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
-          const t = await extrairTextoPDF(a.payload.url);
-          if (t) {
-            console.log("[PDF-TEXTO]", t);
-            contextoExtra += "\n" + t;
+  const t = await extrairTextoPDF(a.payload.url);
+  if (t) {
+    console.log("[PDF-TEXTO]", t);
+    const resumo = await analisarPdfComGPT(t);
+    if (resumo) {
+      console.log("[GPT-PDF]", resumo);
+      contextoExtra += "
+" + resumo;
+    } else {
+      contextoExtra += "
+" + t;
+    }
+  }
+}
           }
         }
         if (a.type === "image" && a.payload?.url) {
