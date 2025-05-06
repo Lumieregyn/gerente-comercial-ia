@@ -243,7 +243,7 @@ app.post("/analisar-imagem", async (req, res) => {
     }
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4-vision-preview",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",
