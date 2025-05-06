@@ -194,6 +194,8 @@ app.post("/conversa", async (req, res) => {
 " + t;
     }
   }
+    }
+  }
 }
           } else {
             try {
