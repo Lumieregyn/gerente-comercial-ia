@@ -90,17 +90,7 @@ async function extrairTextoPDF(url) {
     console.error("[ERRO] PDF parse falhou:", err.message);
     return null;
   }
-}
-
-async function analisarPdfComGPT(texto) {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: "Você é um assistente de vendas técnico. Analise documentos fiscais (DANFE) e extraia produto, valor, cliente, impostos, datas."
-        },
+},
         {
           role: "user",
           content: `Analise o seguinte conteúdo de DANFE:
@@ -228,12 +218,6 @@ app.post("/conversa", async (req, res) => {
     }
   }
 }
-          }
-        }
-        if (a.type === "image" && a.payload?.url) {
-          const t = await analisarImagem(a.payload.url);
-          if (t) {
-            contextoExtra += "\n" + t;
           } else {
             try {
               const resp = await axios.get(a.payload.url, { responseType: "arraybuffer" });
