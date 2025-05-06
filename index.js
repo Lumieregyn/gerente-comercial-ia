@@ -90,7 +90,7 @@ async function extrairTextoPDF(url) {
     console.error("[ERRO] PDF parse falhou:", err.message);
     return null;
   }
-},
+}
         {
           role: "user",
           content: `Analise o seguinte conteúdo de DANFE:
