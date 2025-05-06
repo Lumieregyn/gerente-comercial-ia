@@ -107,13 +107,17 @@ async function analisarImagem(url) {
     console.log("[DEBUG] Tamanho do buffer da imagem:", buffer.length);
 
     const resultado = await Tesseract.recognize(buffer, "por", {
-      logger: m => console.log(`[OCR] ${m.status} - ${m.progress ? Math.round(m.progress * 100) + '%' : ''}`)
+      logger: m => console.log(`[OCR] ${m.status} - ${m.progress ? Math.round(m.progress * 100) + "%" : ""}`)
     });
 
-    const texto = resultado.data.text?.trim();
-    console.log("[IMAGEM-ANALISE]", texto || "[Sem texto detectado]");
-    return texto || null;
-
+    let texto = resultado.data.text?.trim();
+    if (texto && texto.length >= 3) {
+      console.log("[IMAGEM-ANALISE]", texto);
+      return texto;
+    } else {
+      console.log("[IMAGEM-ANALISE] Nenhum texto relevante detectado.");
+      return null;
+    }
   } catch (err) {
     console.error("[ERRO] Análise de imagem falhou:", err.message);
     return null;
