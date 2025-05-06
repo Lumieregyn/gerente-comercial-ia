@@ -118,6 +118,7 @@ Retorne: produto, quantidade, valor unitário, valor total, cliente, CNPJ, data 
     console.error("[ERRO GPT-PDF]", err.message);
     return null;
   }
+}
 } catch (err) {
     console.error("[ERRO] PDF parse falhou:", err.message);
     return null;
