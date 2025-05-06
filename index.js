@@ -182,13 +182,12 @@ app.post("/conversa", async (req, res) => {
         }
         if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
   const t = await extrairTextoPDF(a.payload.url);
-  if (t) {
-    console.log("[PDF-TEXTO]", t);
-    const resumo = await analisarPdfComGPT(t);
-    if (resumo) {
-      console.log("[GPT-PDF]", resumo);
-      contextoExtra += "
-" + resumo;
+if (t) {
+  console.log("[PDF-TEXTO]", t);
+  const resumo = await analisarPdfComGPT(t);
+  contextoExtra += "
+" + (resumo || t);
+}
     } else {
       contextoExtra += "
 " + t;
