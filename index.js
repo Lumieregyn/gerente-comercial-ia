@@ -142,6 +142,7 @@ Retorne: produto, quantidade, valor unitário, valor total, cliente, CNPJ, data 
     return null;
   }
 }
+}
 
 async function analisarImagem(url) {
   try {
