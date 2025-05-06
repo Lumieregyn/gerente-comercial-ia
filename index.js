@@ -103,10 +103,10 @@ async function extrairTextoPDF(url) {
 async function analisarImagem(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
-    const { data: { text } } = await Tesseract.recognize(Buffer.from(resp.data), 'eng');
-    return text.trim();
+    const { data: { text } } = await Tesseract.recognize(Buffer.from(resp.data), "eng");
+    return text;
   } catch (err) {
-    console.error("[ERRO] Análise de imagem via Tesseract falhou:", err.message);
+    console.error("[ERRO] Análise de imagem falhou:", err.message);
     return null;
   }
 }
