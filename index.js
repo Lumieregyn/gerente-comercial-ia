@@ -1,3 +1,4 @@
+// index.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -10,10 +11,14 @@ require("dotenv").config();
 const app = express();
 app.use(bodyParser.json());
 
+// clients
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// env
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
+// mapeamento de vendedores
 const VENDEDORES = {
   "cindy loren": "5562994671766",
   "ana clara martins": "5562991899053",
@@ -21,11 +26,16 @@ const VENDEDORES = {
   "fernando fonseca": "5562985293035"
 };
 
+// templates de mensagem
 const MENSAGENS = {
-  alerta1: (c, v) => `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.`,
-  alerta2: (c, v) => `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
-  alertaFinal: (c, v) => `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
-  alertaGestores: (c, v) => `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
+  alerta1: (c, v) =>
+    `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${v}*, o cliente *${c}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
+  alerta2: (c, v) =>
+    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${v}*, reforçamos que o cliente *${c}* permanece aguardando orçamento há 12h úteis.`,
+  alertaFinal: (c, v) =>
+    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${v}*, o cliente *${c}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
+  alertaGestores: (c, v) =>
+    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${c}* segue sem retorno após 18h úteis.\nResponsável: *${v}*`
 };
 
 function horasUteisEntreDatas(inicio, fim) {
@@ -42,7 +52,11 @@ function horasUteisEntreDatas(inicio, fim) {
 }
 
 function normalizeNome(nome = "") {
-  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  return nome
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 async function enviarMensagem(numero, texto) {
@@ -63,9 +77,11 @@ async function transcreverAudio(url) {
     const form = new FormData();
     form.append("file", Buffer.from(resp.data), { filename: "audio.ogg", contentType: "audio/ogg" });
     form.append("model", "whisper-1");
-    const result = await axios.post("https://api.openai.com/v1/audio/transcriptions", form, {
-      headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }
-    });
+    const result = await axios.post(
+      "https://api.openai.com/v1/audio/transcriptions",
+      form,
+      { headers: { ...form.getHeaders(), Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } }
+    );
     return result.data.text;
   } catch (err) {
     console.error("[ERRO] Transcrição de áudio falhou:", err.message);
@@ -87,32 +103,24 @@ async function extrairTextoPDF(url) {
 async function analisarImagem(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
-    const { data: { text } } = await Tesseract.recognize(Buffer.from(resp.data), "eng");
-    console.log("[IMAGEM-ANALISE]", text);
-    return text;
+    const buffer = Buffer.from(resp.data);
+    console.log("[DEBUG] Tamanho do buffer da imagem:", buffer.length);
+
+    const resultado = await Tesseract.recognize(buffer, "eng", {
+      logger: m => console.log(`[OCR] ${m.status} - ${m.progress ? Math.round(m.progress * 100) + '%' : ''}`)
+    });
+
+    const texto = resultado.data.text?.trim();
+    console.log("[IMAGEM-ANALISE]", texto || "[Vazio]");
+    return texto || null;
+
   } catch (err) {
     console.error("[ERRO] Análise de imagem falhou:", err.message);
     return null;
   }
 }
 
-async function isWaitingForQuote(cliente, mensagem, contexto) {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "Você é Gerente Comercial IA: detecte se cliente está aguardando orçamento." },
-        { role: "user", content: `Cliente: ${cliente}\nMensagem: ${mensagem}${contexto ? "\nContexto: " + contexto : ""}` }
-      ]
-    });
-    const reply = completion.choices[0].message.content.toLowerCase();
-    return reply.includes("sim") || reply.includes("aguard");
-  } catch (err) {
-    console.error("[ERRO] Análise de intenção falhou:", err.message);
-    return false;
-  }
-}
-
+module.exports = app;
 app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
