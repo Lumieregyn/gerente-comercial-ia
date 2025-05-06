@@ -91,8 +91,6 @@ async function extrairTextoPDF(url) {
     return null;
   }
 }
-
-
     return completion.choices[0].message.content;
   } catch (err) {
     console.error("[ERRO GPT-PDF]", err.message);
