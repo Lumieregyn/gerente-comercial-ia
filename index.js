@@ -90,6 +90,7 @@ async function extrairTextoPDF(url) {
     console.error("[ERRO] PDF parse falhou:", err.message);
     return null;
   }
+}
 
 
     return completion.choices[0].message.content;
