@@ -90,18 +90,7 @@ async function extrairTextoPDF(url) {
     console.error("[ERRO] PDF parse falhou:", err.message);
     return null;
   }
-}
-        {
-          role: "user",
-          content: `Analise o seguinte conteúdo de DANFE:
 
-${texto}
-
-Retorne: produto, quantidade, valor unitário, valor total, cliente, CNPJ, data da emissão.`
-        }
-      ],
-      max_tokens: 500
-    });
 
     return completion.choices[0].message.content;
   } catch (err) {
