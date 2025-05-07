@@ -1,15 +1,18 @@
 const MENSAGENS = {
-  alerta1: (cliente, vendedor) =>
-    `⚠️ *Alerta de Atraso - Orçamento*\n\nPrezada(o) *${vendedor}*, o cliente *${cliente}* aguarda orçamento há 6h úteis.\nSolicitamos atenção para concluir o atendimento o quanto antes.`,
+  alerta1: (vendedor, cliente) => 
+    `⚠️ Prezado(a) *${vendedor}*, informamos que o cliente *${cliente}* encontra-se há 6 horas úteis aguardando o orçamento solicitado.\nSolicitamos atenção para concluir o atendimento o quanto antes.\nAgradecemos pela colaboração.`,
 
-  alerta2: (cliente, vendedor) =>
-    `⏰ *Segundo Alerta - Orçamento em Espera*\n\nPrezada(o) *${vendedor}*, reforçamos que o cliente *${cliente}* permanece aguardando orçamento há 12h úteis.`,
+  alerta2: (vendedor, cliente) =>
+    `⚠️ Prezado(a) *${vendedor}*, reforçamos que o cliente *${cliente}* permanece aguardando o orçamento há 12 horas úteis.\nSolicitamos providências imediatas para evitar impacto negativo no atendimento.\nAguardamos seu retorno.`,
 
-  alertaFinal: (cliente, vendedor) =>
-    `‼️ *Último Alerta (18h úteis)*\n\nPrezada(o) *${vendedor}*, o cliente *${cliente}* está há 18h úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.`,
+  alertaFinal: (vendedor, cliente) =>
+    `🚨 Prezado(a) *${vendedor}*, o cliente *${cliente}* está há 18 horas úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.\nCaso contrário, o atendimento será transferido e a situação será registrada junto à Gerência Comercial IA.`,
 
-  alertaGestores: (cliente, vendedor) =>
-    `🚨 *ALERTA CRÍTICO DE ATENDIMENTO*\n\nCliente *${cliente}* segue sem retorno após 18h úteis.\nResponsável: *${vendedor}*`
+  alertaGestores: (vendedor, cliente) =>
+    `🚨 *Atenção Gerência Comercial IA:*\n\nO cliente *${cliente}* permaneceu 18 horas sem receber o orçamento solicitado e o vendedor *${vendedor}* não respondeu no prazo de 10 minutos.\nProvidências serão tomadas quanto à redistribuição do atendimento.`,
+
+  respostaVendedor: (vendedor, msg) =>
+    `📩 *${vendedor}:* ${msg}`
 };
 
 module.exports = MENSAGENS;
