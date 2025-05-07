@@ -4,12 +4,12 @@ const dotenv = require("dotenv");
 dotenv.config();
 
 const { transcreverAudio } = require("./servicos/transcreverAudio");
-const { extrairTextoPDF } = require("./servicos/extratoTextoPDF");
+const { extrairTextoPDF } = require("./servicos/extrairTextoPDF");
 const { analisarImagem } = require("./servicos/analisarImagem");
 const { detectarIntencao } = require("./servicos/detectarIntencao");
 const { enviarMensagem } = require("./servicos/enviarMensagem");
-const { horasUteisEntreDatas } = require("./utilitários/horario-util");
-const MENSAGENS = require("./utilitários/mensagens");
+const { horasUteisEntreDatas } = require("./utils/horario-util");
+const MENSAGENS = require("./utils/mensagens");
 
 const VENDEDORES = require("./vendedores.json");
 const app = express();
