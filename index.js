@@ -7,15 +7,11 @@ const { transcreverAudio } = require("./servicos/transcreverAudio");
 const { extrairTextoPDF } = require("./servicos/extrairTextoPDF");
 const { analisarImagem } = require("./servicos/analisarImagem");
 const { detectarIntencao } = require("./servicos/detectarIntencao");
-const { enviarMensagem } = require("./servicos/enviarMensagem");
-const { horasUteisEntreDatas } = require("./utils/horario-util");
-const MENSAGENS = require("./utils/mensagens");
+const { processarAlertaDeOrcamento } = require("./servicos/alertasOrcamento");
 
 const VENDEDORES = require("./vendedores.json");
 const app = express();
 app.use(bodyParser.json());
-
-const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
 function normalizeNome(nome = "") {
   return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
@@ -73,21 +69,16 @@ app.post("/conversa", async (req, res) => {
     }
 
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
-    const horas = horasUteisEntreDatas(criadoEm, new Date());
 
-    if (horas >= 18) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeCliente, nomeVendedorRaw));
-      setTimeout(() =>
-        enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeCliente, nomeVendedorRaw)),
-        10 * 60 * 1000
-      );
-    } else if (horas >= 12) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeCliente, nomeVendedorRaw));
-    } else if (horas >= 6) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeCliente, nomeVendedorRaw));
-    }
+    await processarAlertaDeOrcamento({
+      nomeCliente,
+      nomeVendedor: nomeVendedorRaw,
+      numeroVendedor,
+      criadoEm,
+      texto
+    });
 
-    res.json({ status: "Processado" });
+    res.json({ status: "Processado com alerta inteligente" });
   } catch (err) {
     console.error("[ERRO]", err.message);
     res.status(500).json({ error: "Erro interno." });
@@ -97,7 +88,6 @@ app.post("/conversa", async (req, res) => {
 app.post("/analisar-imagem", async (req, res) => {
   try {
     const { imagemBase64 } = req.body;
-
     if (!imagemBase64) {
       return res.status(400).json({ erro: "Imagem não enviada." });
     }
