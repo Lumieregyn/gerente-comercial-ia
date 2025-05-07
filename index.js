@@ -171,6 +171,12 @@ app.post("/conversa", async (req, res) => {
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     let contextoExtra = "";
+contextoExtra += "
+" + t;
+contextoExtra += "
+" + (resumo || t);
+contextoExtra += "
+" + descricaoVisual;
 
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
@@ -178,9 +184,7 @@ app.post("/conversa", async (req, res) => {
           const t = await transcreverAudio(a.payload.url);
           if (t) {
             console.log("[TRANSCRICAO]", t);
-            contextoExtra += "
-" + t;
-          }
+                      }
         }
 
         if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
