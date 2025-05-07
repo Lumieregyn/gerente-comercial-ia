@@ -3,19 +3,23 @@ const MENSAGENS = require("../utils/mensagens");
 
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
-/**
- * Verifica se o vendedor respondeu em até 10 minutos e encaminha para o grupo
- */
 async function verificarRespostaOuEscalonar({ nomeCliente, nomeVendedor, numeroVendedor }) {
-  const houveResposta = false; // simulação por enquanto
-  const respostaTexto = null;  // poderia ser algo tipo "Cliente solicitou alteração no projeto..."
+  // 🔁 Simulação: capturar uma resposta (isso virá de um webhook no futuro)
+  const houveResposta = true; // mudar para false para simular atraso
+  const respostaTexto = "Cliente solicitou alteração no modelo, vai confirmar amanhã.";
 
   if (houveResposta && respostaTexto) {
-    await enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.respostaVendedor(nomeVendedor, respostaTexto));
-    console.log(`[ROTEAMENTO] Resposta do vendedor encaminhada com status OK.`);
+    const foiPontual = true; // aqui no futuro será comparado com o tempo real
+
+    const status = foiPontual ? "✅ Resposta dentro do prazo." : "⚠️ Resposta enviada com atraso.";
+
+    const mensagem = `📩 *${nomeVendedor}:* ${respostaTexto}\n${status}`;
+    await enviarMensagem(GRUPO_GESTORES_ID, mensagem);
+
+    console.log(`[RESPOSTA VENDA] Resposta do vendedor encaminhada ao grupo (${status})`);
   } else {
     await enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeVendedor, nomeCliente));
-    console.log(`[ROTEAMENTO] Nenhuma resposta detectada. Escalonado para grupo.`);
+    console.log(`[ESCALONAMENTO] Sem resposta detectada. Alerta final enviado ao grupo.`);
   }
 }
 
