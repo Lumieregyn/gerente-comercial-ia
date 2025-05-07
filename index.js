@@ -9,6 +9,7 @@ const { analisarImagem } = require("./servicos/analisarImagem");
 const { detectarIntencao } = require("./servicos/detectarIntencao");
 const { processarAlertaDeOrcamento } = require("./servicos/alertasOrcamento");
 const { checklistFechamento } = require("./servicos/checklistFechamento");
+const { verificarPedidoEspecial } = require("./servicos/verificarPedidoEspecial");
 
 const VENDEDORES = require("./vendedores.json");
 const app = express();
@@ -53,7 +54,6 @@ app.post("/conversa", async (req, res) => {
           const t = await analisarImagem(a.payload.url);
           if (t) contextoExtra += "\n" + t;
 
-          // salvar imagem base64 para análise visual
           try {
             const resp = await require("axios").get(a.payload.url, { responseType: "arraybuffer" });
             imagemBase64 = Buffer.from(resp.data).toString("base64");
@@ -97,6 +97,13 @@ app.post("/conversa", async (req, res) => {
           contexto: contextoExtra
         });
       }
+
+      await verificarPedidoEspecial({
+        nomeCliente,
+        nomeVendedor: nomeVendedorRaw,
+        numeroVendedor,
+        contexto: contextoExtra
+      });
 
     } else {
       await processarAlertaDeOrcamento({
