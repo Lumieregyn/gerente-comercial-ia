@@ -174,12 +174,13 @@ app.post("/conversa", async (req, res) => {
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
         if (a.type === "audio" && a.payload?.url) {
-          const t = await transcreverAudio(a.payload.url);
-          if (t) {
-            console.log("[TRANSCRICAO]", t);
-            contextoExtra += "
-" + (resumo || t);
+  const t = await transcreverAudio(a.payload.url);
+  if (t) {
+    console.log("[TRANSCRICAO]", t);
+    contextoExtra += "
+" + t;
   }
+}
   continue;
 }
           } else {
