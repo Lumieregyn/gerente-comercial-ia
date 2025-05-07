@@ -171,12 +171,6 @@ app.post("/conversa", async (req, res) => {
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     let contextoExtra = "";
-contextoExtra += "
-" + t;
-contextoExtra += "
-" + (resumo || t);
-contextoExtra += "
-" + descricaoVisual;
 
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
@@ -187,22 +181,10 @@ contextoExtra += "
                       }
         }
 
-        if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
-          const t = await extrairTextoPDF(a.payload.url);
-          if (t) {
-            console.log("[PDF-TEXTO]", t);
-            const resumo = await analisarPdfComGPT(t);
-            contextoExtra += "
-" + (resumo || t);
-          }
+        
         }
 
-        if (a.type === "image" && a.payload?.url) {
-          const t = await analisarImagem(a.payload.url);
-          if (t) {
-            contextoExtra += "
-" + t;
-          } else {
+         else {
             try {
               const resp = await axios.get(a.payload.url, { responseType: "arraybuffer" });
               const base64 = Buffer.from(resp.data).toString("base64");
