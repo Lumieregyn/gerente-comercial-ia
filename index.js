@@ -196,8 +196,8 @@ app.post("/conversa", async (req, res) => {
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
           if (t) {
-            contextoExtra += "
-" + t;
+            contextoExtra += "\n" + t;
+
           } else {
             try {
               const resp = await axios.get(a.payload.url, { responseType: "arraybuffer" });
