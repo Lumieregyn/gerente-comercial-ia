@@ -8,6 +8,7 @@ const { extrairTextoPDF } = require("./servicos/extrairTextoPDF");
 const { analisarImagem } = require("./servicos/analisarImagem");
 const { detectarIntencao } = require("./servicos/detectarIntencao");
 const { processarAlertaDeOrcamento } = require("./servicos/alertasOrcamento");
+const { checklistFechamento } = require("./servicos/checklistFechamento");
 
 const VENDEDORES = require("./vendedores.json");
 const app = express();
@@ -53,12 +54,6 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
-    const aguardando = await detectarIntencao(nomeCliente, texto, contextoExtra);
-    if (!aguardando) {
-      console.log("[INFO] Cliente não está aguardando orçamento.");
-      return res.json({ status: "Sem ação necessária." });
-    }
-
     const nomeVendedorRaw = attendant.Name || "";
     const keyVend = normalizeNome(nomeVendedorRaw);
     const numeroVendedor = VENDEDORES[keyVend];
@@ -70,15 +65,29 @@ app.post("/conversa", async (req, res) => {
 
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
 
-    await processarAlertaDeOrcamento({
-      nomeCliente,
-      nomeVendedor: nomeVendedorRaw,
-      numeroVendedor,
-      criadoEm,
-      texto
-    });
+    // 🎯 Bloco 2 — IA detecta intenção de fechamento
+    const sinalizouFechamento = await detectarIntencao(nomeCliente, texto, contextoExtra);
+    if (sinalizouFechamento) {
+      console.log("[IA] Intenção de fechamento detectada.");
+      await checklistFechamento({
+        nomeCliente,
+        nomeVendedor: nomeVendedorRaw,
+        numeroVendedor,
+        contexto: contextoExtra,
+        texto
+      });
+    } else {
+      // 🔁 Bloco 1 — Alerta de orçamento (aguardando)
+      await processarAlertaDeOrcamento({
+        nomeCliente,
+        nomeVendedor: nomeVendedorRaw,
+        numeroVendedor,
+        criadoEm,
+        texto
+      });
+    }
 
-    res.json({ status: "Processado com alerta inteligente" });
+    res.json({ status: "Processado com inteligência" });
   } catch (err) {
     console.error("[ERRO]", err.message);
     res.status(500).json({ error: "Erro interno." });
