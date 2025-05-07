@@ -188,8 +188,10 @@ app.post("/conversa", async (req, res) => {
           if (t) {
             console.log("[PDF-TEXTO]", t);
             const resumo = await analisarPdfComGPT(t);
-            if (resumo) contextoExtra += "
-" + resumo;
+            if (resumo) contextoExtra += "\n" + resumo;
+
+
+
           }
         }
 
