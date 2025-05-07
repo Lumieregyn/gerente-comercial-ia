@@ -192,15 +192,30 @@ app.post("/conversa", async (req, res) => {
         }
 
         if (a.type === "image" && a.payload?.url) {
-          const t = await analisarImagem(a.payload.url);
-          if (t) {
-            
-              }
-            } catch (erroGPT) {
-              console.error("[ERRO GPT-4V]", erroGPT.message);
-            }
-          }
-        }
+  const t = await analisarImagem(a.payload.url);
+  if (t) {
+    contextoExtra += "
+" + t;
+  } else {
+    try {
+      const resp = await axios.get(a.payload.url, { responseType: "arraybuffer" });
+      const base64 = Buffer.from(resp.data).toString("base64");
+
+      const respostaGPT = await axios.post(`${process.env.API_URL || "http://localhost:3000"}/analisar-imagem`, {
+        imagemBase64: base64
+      });
+
+      const descricaoVisual = respostaGPT.data.descricao;
+      if (descricaoVisual) {
+        console.log("[GPT-4V]", descricaoVisual);
+        contextoExtra += "
+" + descricaoVisual;
+      }
+    } catch (erroGPT) {
+      console.error("[ERRO GPT-4V]", erroGPT.message);
+    }
+  }
+}        }
       }
     }
 
