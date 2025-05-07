@@ -215,7 +215,7 @@ app.post("/conversa", async (req, res) => {
       console.error("[ERRO GPT-4V]", erroGPT.message);
     }
   }
-}}
+}
       }
     }
 
