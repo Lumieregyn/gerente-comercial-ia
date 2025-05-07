@@ -35,6 +35,8 @@ app.post("/conversa", async (req, res) => {
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     let contextoExtra = "";
+    let imagemBase64 = null;
+
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
         if (a.type === "audio" && a.payload?.url) {
@@ -50,6 +52,14 @@ app.post("/conversa", async (req, res) => {
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
           if (t) contextoExtra += "\n" + t;
+
+          // salvar imagem base64 para análise visual
+          try {
+            const resp = await require("axios").get(a.payload.url, { responseType: "arraybuffer" });
+            imagemBase64 = Buffer.from(resp.data).toString("base64");
+          } catch (err) {
+            console.error("[ERRO IMG BASE64]", err.message);
+          }
         }
       }
     }
@@ -65,10 +75,10 @@ app.post("/conversa", async (req, res) => {
 
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
 
-    // 🎯 Bloco 2 — IA detecta intenção de fechamento
     const sinalizouFechamento = await detectarIntencao(nomeCliente, texto, contextoExtra);
     if (sinalizouFechamento) {
       console.log("[IA] Intenção de fechamento detectada.");
+
       await checklistFechamento({
         nomeCliente,
         nomeVendedor: nomeVendedorRaw,
@@ -76,8 +86,19 @@ app.post("/conversa", async (req, res) => {
         contexto: contextoExtra,
         texto
       });
+
+      if (imagemBase64) {
+        const { compararImagemProduto } = require("./servicos/compararImagemProduto");
+        await compararImagemProduto({
+          nomeCliente,
+          nomeVendedor: nomeVendedorRaw,
+          numeroVendedor,
+          imagemBase64,
+          contexto: contextoExtra
+        });
+      }
+
     } else {
-      // 🔁 Bloco 1 — Alerta de orçamento (aguardando)
       await processarAlertaDeOrcamento({
         nomeCliente,
         nomeVendedor: nomeVendedorRaw,
