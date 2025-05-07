@@ -1,38 +1,46 @@
-// index.js - versão final consolidada
+// index.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 const FormData = require("form-data");
-const fs = require("fs");
+const pdfParse = require("pdf-parse");
 const { OpenAI } = require("openai");
+const Tesseract = require("tesseract.js");
+const fs = require("fs");
 require("dotenv").config();
-
-const { verificarDivergenciaVisual } = require("./inteligencia/motor-da-inteligencia");
 
 const app = express();
 app.use(bodyParser.json());
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const VENDEDORES = JSON.parse(fs.readFileSync("./vendedores.json", "utf8"));
 const WPP_URL = process.env.WPP_URL;
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
+const VENDEDORES = JSON.parse(fs.readFileSync("./vendedores.json", "utf8"));
 const statusAlerta = {};
 
 const MENSAGENS = {
   alerta1: (c, v) =>
-    `⚠️ Prezado(a) ${v}, informamos que o cliente ${c} encontra-se há 6 horas úteis aguardando o orçamento solicitado.\nSolicitamos atenção para concluir o atendimento o quanto antes.\nAgradecemos pela colaboração.`,
+    `⚠️ Prezado(a) ${v}, informamos que o cliente ${c} encontra-se há 6 horas úteis aguardando o orçamento solicitado.
+Solicitamos atenção para concluir o atendimento o quanto antes.
+Agradecemos pela colaboração.`,
   alerta2: (c, v) =>
-    `⚠️ Prezado(a) ${v}, reforçamos que o cliente ${c} permanece aguardando o orçamento há 12 horas úteis.\nSolicitamos providências imediatas para evitar impacto negativo no atendimento.\nAguardamos seu retorno.`,
+    `⚠️ Prezado(a) ${v}, reforçamos que o cliente ${c} permanece aguardando o orçamento há 12 horas úteis.
+Solicitamos providências imediatas para evitar impacto negativo no atendimento.
+Aguardamos seu retorno.`,
   alertaFinal: (c, v) =>
-    `🚨 Prezado(a) ${v}, o cliente ${c} está há 18 horas úteis aguardando orçamento.\nVocê tem 10 minutos para responder esta mensagem.\nCaso contrário, o atendimento será transferido e a situação será registrada junto à Gerência Comercial IA.`,
+    `🚨 Prezado(a) ${v}, o cliente ${c} está há 18 horas úteis aguardando orçamento.
+Você tem 10 minutos para responder esta mensagem.
+Caso contrário, o atendimento será transferido e a situação será registrada junto à Gerência Comercial IA.`,
   alertaGestores: (c) =>
-    `🚨 Atenção Gerência Comercial IA:\nO cliente ${c} permaneceu 18 horas sem receber o orçamento solicitado e o vendedor não respondeu no prazo de 10 minutos.\nProvidências serão tomadas quanto à redistribuição do atendimento.`
+    `🚨 Atenção Gerência Comercial IA:
+O cliente ${c} permaneceu 18 horas sem receber o orçamento solicitado e o vendedor não respondeu no prazo de 10 minutos.
+Providências serão tomadas quanto à redistribuição do atendimento.`
 };
 
 function normalizeNome(nome = "") {
-  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  return nome.normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
 }
 
 function obterNumeroVendedor(nomeRaw) {
@@ -58,7 +66,6 @@ async function enviarMensagem(numero, texto) {
 
 async function isFechamentoConfirmado(cliente, mensagem, contexto) {
   try {
-    const prompt = `Cliente: ${cliente}\nMensagem: ${mensagem}` + (contexto ? `\nContexto: ${contexto}` : "");
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -68,7 +75,9 @@ async function isFechamentoConfirmado(cliente, mensagem, contexto) {
         },
         {
           role: "user",
-          content: prompt
+          content: `Cliente: ${cliente}
+Mensagem: ${mensagem}${contexto ? "
+Contexto: " + contexto : ""}`
         }
       ]
     });
@@ -79,6 +88,7 @@ async function isFechamentoConfirmado(cliente, mensagem, contexto) {
     return false;
   }
 }
+const { verificarDivergenciaVisual } = require("./inteligencia/motor-da-inteligencia");
 
 async function executarChecklistFinal(cliente, contexto, descricaoImagem, descricaoPDF, numeroVendedor) {
   console.log(`[CHECKLIST] Iniciando checklist completo para ${cliente}...`);
@@ -103,21 +113,32 @@ async function executarChecklistFinal(cliente, contexto, descricaoImagem, descri
           },
           {
             role: "user",
-            content: `Cliente: ${cliente}\n\nVerifique o seguinte item: ${item}\n\nContexto completo da conversa: ${contexto}`
+            content: `Cliente: ${cliente}
+
+Verifique o seguinte item: ${item}
+
+Contexto completo da conversa: ${contexto}`
           }
         ]
       });
       const resposta = completion.choices[0].message.content;
       console.log(`[CHECKLIST][${item}] → ${resposta}`);
     } catch (err) {
-      console.error(`[CHECKLIST ERRO] Falha ao verificar \"${item}\":`, err.message);
+      console.error(`[CHECKLIST ERRO] Falha ao verificar "${item}":`, err.message);
     }
   }
 
   if (descricaoImagem && descricaoPDF) {
     const divergencia = await verificarDivergenciaVisual(descricaoImagem, descricaoPDF, cliente);
     if (divergencia) {
-      const alertaImagem = `📸⚠️ Atenção: Identificamos uma possível divergência entre a imagem enviada pelo cliente e o item orçado.\n\n${divergencia}\n\nProduto enviado: ${descricaoImagem}\nProduto orçado: ${descricaoPDF}\n\n👉 Por favor, revise com atenção para evitar problemas no pedido final.`;
+      const alertaImagem = `📸⚠️ Atenção: Identificamos uma possível divergência entre a imagem enviada pelo cliente e o item orçado.
+
+${divergencia}
+
+Produto enviado: ${descricaoImagem}
+Produto orçado: ${descricaoPDF}
+
+👉 Por favor, revise com atenção para evitar problemas no pedido final.`;
       await enviarMensagem(numeroVendedor, alertaImagem);
     }
   }
@@ -173,7 +194,9 @@ app.post("/resposta-vendedor", async (req, res) => {
     const textoResposta = `📩 ${vendedor}: ${mensagem}`;
     const prefixo = respondeuNoTempo ? "✅ Resposta dentro do prazo" : "⚠️ Resposta fora do prazo";
 
-    const textoGrupo = `${prefixo} - Cliente ${cliente}\n\n${textoResposta}`;
+    const textoGrupo = `${prefixo} - Cliente ${cliente}
+
+${textoResposta}`;
     await enviarMensagem(GRUPO_GESTORES_ID, textoGrupo);
 
     res.json({ status: "Resposta registrada e enviada ao grupo." });
@@ -182,6 +205,3 @@ app.post("/resposta-vendedor", async (req, res) => {
     res.status(500).json({ error: "Erro interno." });
   }
 });
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
