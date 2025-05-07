@@ -11,6 +11,9 @@ const MENSAGENS = {
   alertaGestores: (vendedor, cliente) =>
     `🚨 *Atenção Gerência Comercial IA:*\n\nO cliente *${cliente}* permaneceu 18 horas sem receber o orçamento solicitado e o vendedor *${vendedor}* não respondeu no prazo de 10 minutos.\nProvidências serão tomadas quanto à redistribuição do atendimento.`,
 
+  alertaChecklist: (vendedor, cliente, lista) => 
+  `✅ *Checklist Final de Fechamento - Análise IA*\n\n⚠️ Prezado(a) *${vendedor}*, ao revisar o atendimento com o cliente *${cliente}*, identificamos pendências que devem ser ajustadas antes de gerar o pedido:\n\n${lista}\n\n💡 Recomendamos validar com o cliente para garantir que tudo está alinhado e evitar problemas futuros.\n\n🤖 Análise automatizada e inteligente realizada pelo Gerente Comercial IA.`
+
   respostaVendedor: (vendedor, msg) =>
     `📩 *${vendedor}:* ${msg}`
 };
