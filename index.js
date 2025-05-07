@@ -189,7 +189,7 @@ app.post("/conversa", async (req, res) => {
 " + (resumo || t);
   }
   continue;
-}}
+}
           } else {
             try {
               const resp = await axios.get(a.payload.url, { responseType: "arraybuffer" });
