@@ -4,18 +4,16 @@ const MENSAGENS = require("../utils/mensagens");
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
 async function verificarRespostaOuEscalonar({ nomeCliente, nomeVendedor, numeroVendedor }) {
-  // 🔁 Simulação: capturar uma resposta (isso virá de um webhook no futuro)
-  const houveResposta = true; // mudar para false para simular atraso
-  const respostaTexto = "Cliente solicitou alteração no modelo, vai confirmar amanhã.";
+  const houveResposta = true; // Altere para false se quiser simular sem resposta
+  const respostaTexto = "Cliente disse que vai confirmar amanhã.";
 
   if (houveResposta && respostaTexto) {
-    const foiPontual = true; // aqui no futuro será comparado com o tempo real
+    const foiPontual = true; // Altere para false para simular resposta atrasada
 
     const status = foiPontual ? "✅ Resposta dentro do prazo." : "⚠️ Resposta enviada com atraso.";
-
     const mensagem = `📩 *${nomeVendedor}:* ${respostaTexto}\n${status}`;
-    await enviarMensagem(GRUPO_GESTORES_ID, mensagem);
 
+    await enviarMensagem(GRUPO_GESTORES_ID, mensagem);
     console.log(`[RESPOSTA VENDA] Resposta do vendedor encaminhada ao grupo (${status})`);
   } else {
     await enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeVendedor, nomeCliente));
