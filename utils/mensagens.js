@@ -1,5 +1,5 @@
 const MENSAGENS = {
-  alerta1: (vendedor, cliente) => 
+  alerta1: (vendedor, cliente) =>
     `⚠️ Prezado(a) *${vendedor}*, informamos que o cliente *${cliente}* encontra-se há 6 horas úteis aguardando o orçamento solicitado.\nSolicitamos atenção para concluir o atendimento o quanto antes.\nAgradecemos pela colaboração.`,
 
   alerta2: (vendedor, cliente) =>
@@ -11,11 +11,14 @@ const MENSAGENS = {
   alertaGestores: (vendedor, cliente) =>
     `🚨 *Atenção Gerência Comercial IA:*\n\nO cliente *${cliente}* permaneceu 18 horas sem receber o orçamento solicitado e o vendedor *${vendedor}* não respondeu no prazo de 10 minutos.\nProvidências serão tomadas quanto à redistribuição do atendimento.`,
 
-  alertaChecklist: (vendedor, cliente, lista) => 
+  alertaChecklist: (vendedor, cliente, lista) =>
     `✅ *Checklist Final de Fechamento - Análise IA*\n\n⚠️ Prezado(a) *${vendedor}*, ao revisar o atendimento com o cliente *${cliente}*, identificamos pendências que devem ser ajustadas antes de gerar o pedido:\n\n${lista}\n\n💡 Recomendamos validar com o cliente para garantir que tudo está alinhado e evitar problemas futuros.\n\n🤖 Análise automatizada e inteligente realizada pelo Gerente Comercial IA.`,
 
   respostaVendedor: (vendedor, msg) =>
-    `📩 *${vendedor}:* ${msg}`
+    `📩 *${vendedor}:* ${msg}`,
+
+  alertaImagem: (vendedor, cliente) =>
+    `📸 *Alerta de Divergência de Imagem*\n\n⚠️ Prezado(a) *${vendedor}*, ao revisar o material enviado pelo cliente *${cliente}*, identificamos uma possível divergência entre a imagem fornecida e o produto orçado (ex: cor, tipo de luminária).\n\n🚨 Recomendamos que valide com o cliente antes de gerar o pedido de venda para evitar retrabalho ou insatisfação.\n\n🤖 Análise realizada automaticamente pelo Gerente Comercial IA.`
 };
 
 module.exports = MENSAGENS;
