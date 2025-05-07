@@ -2,6 +2,7 @@ const { enviarMensagem } = require("./enviarMensagem");
 const MENSAGENS = require("../utils/mensagens");
 const { horasUteisEntreDatas } = require("../utils/horario-util");
 const { verificarRespostaOuEscalonar } = require("./verificarRespostaVendedor");
+const { dentroDoHorarioUtil } = require("../utils/dentroDoHorarioUtil");
 
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
@@ -9,20 +10,24 @@ const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
  * Dispara alertas conforme tempo útil e verifica resposta em 10 min
  */
 async function processarAlertaDeOrcamento({ nomeCliente, nomeVendedor, numeroVendedor, criadoEm, texto }) {
+  // ❌ Fora do horário? Pausa tudo
+  if (!dentroDoHorarioUtil()) {
+    console.log("[PAUSA] Fora do horário útil. Alerta não será enviado.");
+    return;
+  }
+
   const horas = horasUteisEntreDatas(criadoEm, new Date());
 
   if (horas >= 18) {
-    // Alerta final
     await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeVendedor, nomeCliente));
 
-    // Verificação após 10 minutos
     setTimeout(() => {
       verificarRespostaOuEscalonar({
         nomeCliente,
         nomeVendedor,
         numeroVendedor
       });
-    }, 10 * 60 * 1000); // 10 minutos
+    }, 10 * 60 * 1000);
 
   } else if (horas >= 12) {
     await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeVendedor, nomeCliente));
