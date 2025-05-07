@@ -140,21 +140,6 @@ async function isWaitingForQuote(cliente, mensagem, contexto) {
 }
 
 app.post("/conversa", async (req, res) => {
-  const tipoEvento = req.body.type;
-  switch (tipoEvento) {
-    case "new-message":
-    case "message":
-      break; // segue fluxo normal abaixo
-    case "new-contact":
-    case "finish-attendance":
-    case "transfer-attendance":
-    case "new-session":
-      console.log(`[IGNORADO] Evento mapeado mas não processável: ${tipoEvento}`);
-      return res.status(200).json({ status: "Ignorado" });
-    default:
-      console.warn(`[ERRO] Tipo de evento desconhecido: ${tipoEvento}`);
-      return res.status(400).json({ error: "Tipo de evento não reconhecido" });
-  }
   try {
     const payload = req.body.payload;
     if (!payload || !payload.user || !(payload.message || payload.Message) || !payload.channel) {
@@ -171,35 +156,26 @@ app.post("/conversa", async (req, res) => {
     console.log(`[LOG] Nova mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     let contextoExtra = "";
-
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
           if (t) {
-            contextoExtra += "\n" + t;
-
             console.log("[TRANSCRICAO]", t);
+            contextoExtra += "\n" + t;
           }
         }
-
         if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
             console.log("[PDF-TEXTO]", t);
-            const resumo = await analisarPdfComGPT(t);
-            if (resumo) contextoExtra += "\n" + resumo;
-
-
-
+            contextoExtra += "\n" + t;
           }
         }
-
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
           if (t) {
             contextoExtra += "\n" + t;
-
           } else {
             try {
               const resp = await axios.get(a.payload.url, { responseType: "arraybuffer" });
@@ -213,7 +189,6 @@ app.post("/conversa", async (req, res) => {
               if (descricaoVisual) {
                 console.log("[GPT-4V]", descricaoVisual);
                 contextoExtra += "\n" + descricaoVisual;
-
               }
             } catch (erroGPT) {
               console.error("[ERRO GPT-4V]", erroGPT.message);
