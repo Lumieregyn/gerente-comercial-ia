@@ -177,6 +177,8 @@ app.post("/conversa", async (req, res) => {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
           if (t) {
+  contextoExtra += "
+" + t;
             console.log("[TRANSCRICAO]", t);
             
           }
@@ -194,8 +196,7 @@ app.post("/conversa", async (req, res) => {
         if (a.type === "image" && a.payload?.url) {
   const t = await analisarImagem(a.payload.url);
   if (t) {
-    contextoExtra += "
-" + t;
+    
   } else {
     try {
       const resp = await axios.get(a.payload.url, { responseType: "arraybuffer" });
@@ -207,9 +208,10 @@ app.post("/conversa", async (req, res) => {
 
       const descricaoVisual = respostaGPT.data.descricao;
       if (descricaoVisual) {
-        console.log("[GPT-4V]", descricaoVisual);
-        contextoExtra += "
+  console.log("[GPT-4V]", descricaoVisual);
+  contextoExtra += "
 " + descricaoVisual;
+        
       }
     } catch (erroGPT) {
       console.error("[ERRO GPT-4V]", erroGPT.message);
