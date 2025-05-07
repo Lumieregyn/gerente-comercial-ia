@@ -173,16 +173,53 @@ app.post("/conversa", async (req, res) => {
     let contextoExtra = "";
 
     if (Array.isArray(message.attachments)) {
-      for (const a of message.attachments) {
-        if (a.type === "audio" && a.payload?.url) {
-          const t = await transcreverAudio(a.payload.url);
-          if (t) {
-            contextoExtra += "
+  for (const a of message.attachments) {
+    if (a.type === "audio" && a.payload?.url) {
+      const t = await transcreverAudio(a.payload.url);
+      if (t) {
+        contextoExtra += "
 " + t;
-            console.log("[TRANSCRICAO]", t);
-          }
-        }
+        console.log("[TRANSCRICAO]", t);
+      }
+    }
 
+    if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
+      const t = await extrairTextoPDF(a.payload.url);
+      if (t) {
+        console.log("[PDF-TEXTO]", t);
+        const resumo = await analisarPdfComGPT(t);
+        if (resumo) contextoExtra += "
+" + resumo;
+      }
+    }
+
+    if (a.type === "image" && a.payload?.url) {
+      const t = await analisarImagem(a.payload.url);
+      if (t) {
+        contextoExtra += "
+" + t;
+      } else {
+        try {
+          const resp = await axios.get(a.payload.url, { responseType: "arraybuffer" });
+          const base64 = Buffer.from(resp.data).toString("base64");
+
+          const respostaGPT = await axios.post(`${process.env.API_URL || "http://localhost:3000"}/analisar-imagem`, {
+            imagemBase64: base64
+          });
+
+          const descricaoVisual = respostaGPT.data.descricao;
+          if (descricaoVisual) {
+            console.log("[GPT-4V]", descricaoVisual);
+            contextoExtra += "
+" + descricaoVisual;
+          }
+        } catch (erroGPT) {
+          console.error("[ERRO GPT-4V]", erroGPT.message);
+        }
+      }
+    }
+  }
+}
         if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
