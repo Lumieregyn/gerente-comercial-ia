@@ -177,7 +177,7 @@ app.post("/conversa", async (req, res) => {
           const t = await transcreverAudio(a.payload.url);
           if (t) {
             console.log("[TRANSCRICAO]", t);
-            contextoExtra += "\n" + t;
+            contextoExtra += "\n" + (resumo || t);
           }
         }
         if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
