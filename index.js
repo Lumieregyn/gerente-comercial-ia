@@ -224,6 +224,8 @@ if (Array.isArray(message.attachments)) {
 }
   }
 }
+  }
+}
       }
     }
     }
