@@ -49,4 +49,31 @@ Retorne apenas "Sem alerta" ou a análise.`;
   return content.includes("Sem alerta") ? null : content;
 }
 
-module.exports = { analisarMensagemComIA };
+async function verificarDivergenciaVisual(descricaoImagem, descricaoOrcamento, nomeCliente) {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: `Você é um assistente técnico da Gerência Comercial IA. Compare a descrição de uma imagem enviada pelo cliente com a descrição do item orçado no orçamento. Se houver divergência significativa de tipo, modelo ou cor, diga "Alerta: Divergência detectada". Caso contrário, diga "OK: Descrição coerente".`
+        },
+        {
+          role: "user",
+          content: `Cliente: ${nomeCliente}\n\nDescrição da imagem: ${descricaoImagem}\n\nDescrição do orçamento: ${descricaoOrcamento}\n\nA análise deve ser rigorosa caso o item não esteja no sistema.`
+        }
+      ]
+    });
+
+    const resposta = completion.choices[0].message.content.trim();
+    return resposta.includes("Alerta") ? resposta : null;
+  } catch (err) {
+    console.error("[ERRO] Falha na verificação visual:", err.message);
+    return null;
+  }
+}
+
+module.exports = {
+  analisarMensagemComIA,
+  verificarDivergenciaVisual
+};
