@@ -182,20 +182,14 @@ app.post("/conversa", async (req, res) => {
         }
         if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
   const t = await extrairTextoPDF(a.payload.url);
-if (t) {
-  console.log("[PDF-TEXTO]", t);
-  const resumo = await analisarPdfComGPT(t);
-  contextoExtra += "
+  if (t) {
+    console.log("[PDF-TEXTO]", t);
+    const resumo = await analisarPdfComGPT(t);
+    contextoExtra += "
 " + (resumo || t);
-}
-    } else {
-      contextoExtra += "
-" + t;
-    }
   }
-    }
-  }
-}
+  continue;
+}}
           } else {
             try {
               const resp = await axios.get(a.payload.url, { responseType: "arraybuffer" });
