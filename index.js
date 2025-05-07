@@ -3,11 +3,11 @@ const bodyParser = require("body-parser");
 const dotenv = require("dotenv");
 dotenv.config();
 
-const { transcreverAudio } = require("./serviços/transcreverAudio");
-const { extrairTextoPDF } = require("./serviços/extratoTextoPDF");
-const { analisarImagem } = require("./serviços/analisarImagem");
-const { detectarIntencao } = require("./serviços/detectarIntencao");
-const { enviarMensagem } = require("./serviços/enviarMensagem");
+const { transcreverAudio } = require("./servicos/transcreverAudio");
+const { extrairTextoPDF } = require("./servicos/extratoTextoPDF");
+const { analisarImagem } = require("./servicos/analisarImagem");
+const { detectarIntencao } = require("./servicos/detectarIntencao");
+const { enviarMensagem } = require("./servicos/enviarMensagem");
 const { horasUteisEntreDatas } = require("./utilitários/horario-util");
 const MENSAGENS = require("./utilitários/mensagens");
 
@@ -94,7 +94,6 @@ app.post("/conversa", async (req, res) => {
   }
 });
 
-// Rota de fallback visual
 app.post("/analisar-imagem", async (req, res) => {
   try {
     const { imagemBase64 } = req.body;
