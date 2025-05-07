@@ -10,6 +10,7 @@ const { detectarIntencao } = require("./servicos/detectarIntencao");
 const { processarAlertaDeOrcamento } = require("./servicos/alertasOrcamento");
 const { checklistFechamento } = require("./servicos/checklistFechamento");
 const { verificarPedidoEspecial } = require("./servicos/verificarPedidoEspecial");
+const { mensagemEhRuido } = require("./utils/controleDeRuido");
 
 const VENDEDORES = require("./vendedores.json");
 const app = express();
@@ -34,6 +35,12 @@ app.post("/conversa", async (req, res) => {
     const nomeCliente = user.Name || "Cliente";
     const texto = message.text || message.caption || "[attachment]";
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
+
+    // 🎯 Bloco 8 – Filtro de Ruído
+    if (mensagemEhRuido(texto)) {
+      console.log("[RUÍDO] Mensagem irrelevante detectada. Ignorando.");
+      return res.json({ status: "Ignorado por ruído." });
+    }
 
     let contextoExtra = "";
     let imagemBase64 = null;
