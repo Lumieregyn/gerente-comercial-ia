@@ -179,7 +179,7 @@ app.post("/conversa", async (req, res) => {
           if (t) {
   contextoExtra += "
 " + t;
-            console.log("[TRANSCRICAO]", t);
+              console.log("[TRANSCRICAO]", t);
             
           }
         }
@@ -211,7 +211,7 @@ app.post("/conversa", async (req, res) => {
   console.log("[GPT-4V]", descricaoVisual);
   contextoExtra += "
 " + descricaoVisual;
-        
+          
       }
     } catch (erroGPT) {
       console.error("[ERRO GPT-4V]", erroGPT.message);
