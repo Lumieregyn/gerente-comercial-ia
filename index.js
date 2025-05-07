@@ -212,8 +212,8 @@ app.post("/conversa", async (req, res) => {
               const descricaoVisual = respostaGPT.data.descricao;
               if (descricaoVisual) {
                 console.log("[GPT-4V]", descricaoVisual);
-                contextoExtra += "
-" + descricaoVisual;
+                contextoExtra += "\n" + descricaoVisual;
+
               }
             } catch (erroGPT) {
               console.error("[ERRO GPT-4V]", erroGPT.message);
