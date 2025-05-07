@@ -1,6 +1,7 @@
 const { enviarMensagem } = require("./enviarMensagem");
 const MENSAGENS = require("../utils/mensagens");
 const { horasUteisEntreDatas } = require("../utils/horario-util");
+const { verificarRespostaOuEscalonar } = require("./verificarRespostaVendedor");
 
 const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
 
@@ -14,13 +15,13 @@ async function processarAlertaDeOrcamento({ nomeCliente, nomeVendedor, numeroVen
     // Alerta final
     await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeVendedor, nomeCliente));
 
-    // Monitorar resposta
-    setTimeout(async () => {
-      // Em versão futura: IA busca se houve resposta válida aqui
-      const houveResposta = false; // Simulação
-      if (!houveResposta) {
-        await enviarMensagem(GRUPO_GESTORES_ID, MENSAGENS.alertaGestores(nomeVendedor, nomeCliente));
-      }
+    // Verificação após 10 minutos
+    setTimeout(() => {
+      verificarRespostaOuEscalonar({
+        nomeCliente,
+        nomeVendedor,
+        numeroVendedor
+      });
     }, 10 * 60 * 1000); // 10 minutos
 
   } else if (horas >= 12) {
