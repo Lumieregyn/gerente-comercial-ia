@@ -177,7 +177,7 @@ app.post("/conversa", async (req, res) => {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
           if (t) {
-            contextoExtra += "
+            contextoExtra += "\n" + t;
 " + t;
             console.log("[TRANSCRICAO]", t);
           }
