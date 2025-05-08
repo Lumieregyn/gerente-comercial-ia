@@ -3,10 +3,23 @@ const { OpenAI } = require("openai");
 const { v4: uuidv4 } = require("uuid");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 
-const indexName = "lumiere-logs";
-const namespace = undefined;
+const pinecone = new Pinecone();
+let pineconeIndex = null;
+
+(async () => {
+  try {
+    await pinecone.init({
+      apiKey: process.env.PINECONE_API_KEY,
+      environment: process.env.PINECONE_ENVIRONMENT // exemplo: "us-east-1"
+    });
+
+    pineconeIndex = pinecone.Index("lumiere-logs");
+    console.log("[PINECONE] Conexão com índice estabelecida.");
+  } catch (err) {
+    console.error("[PINECONE] Erro ao inicializar:", err.message);
+  }
+})();
 
 async function gerarEmbedding(texto) {
   try {
@@ -23,6 +36,11 @@ async function gerarEmbedding(texto) {
 
 async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
   try {
+    if (!pineconeIndex) {
+      console.warn("[PINECONE] Índice não está pronto ainda.");
+      return;
+    }
+
     const embedding = await gerarEmbedding(texto);
     if (!embedding) return;
 
@@ -41,9 +59,7 @@ async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, d
       }
     };
 
-    const index = pinecone.index(indexName);
-    await index.upsert([vector], namespace);
-
+    await pineconeIndex.upsert([vector]);
     console.log(`[PINECONE] Registro inserido: ${evento} (${cliente})`);
   } catch (err) {
     console.error("[PINECONE] Falha ao registrar log:", err.message);
