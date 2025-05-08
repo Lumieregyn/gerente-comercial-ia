@@ -22,12 +22,6 @@ function normalizeNome(nome = "") {
 }
 
 app.post("/conversa", async (req, res) => {
-  // Se quisermos pausar todo o fluxo de alertas/processamento:
-  if (process.env.PAUSE_ALERTS === "true") {
-    console.log("[PAUSA] PAUSE_ALERTS ativo: nenhum processamento será executado.");
-    return res.json({ status: "Alertas pausados." });
-  }
-
   try {
     const payload = req.body.payload;
     if (!payload || !payload.user || !(payload.message || payload.Message) || !payload.channel) {
@@ -43,7 +37,7 @@ app.post("/conversa", async (req, res) => {
     const texto = message.text || message.caption || "[attachment]";
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // Bloco 8 – Filtro de Ruído
+    // 🎯 Bloco 8 – Filtro de Ruído
     if (mensagemEhRuido(texto)) {
       console.log("[RUÍDO] Mensagem irrelevante detectada. Ignorando.");
       return res.json({ status: "Ignorado por ruído." });
@@ -56,15 +50,24 @@ app.post("/conversa", async (req, res) => {
       for (const a of message.attachments) {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
-          if (t) contextoExtra += "\n" + t;
+          if (t) {
+            console.log("[AUDIO] Transcrição obtida:", t);
+            contextoExtra += "\n" + t;
+          }
         }
         if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
-          if (t) contextoExtra += "\n" + t;
+          if (t) {
+            console.log("[PDF] Texto extraído:", t);
+            contextoExtra += "\n" + t;
+          }
         }
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
-          if (t) contextoExtra += "\n" + t;
+          if (t) {
+            console.log("[IMAGEM] Análise retornou:", t);
+            contextoExtra += "\n" + t;
+          }
           try {
             const resp = await require("axios").get(a.payload.url, { responseType: "arraybuffer" });
             imagemBase64 = Buffer.from(resp.data).toString("base64");
@@ -84,8 +87,8 @@ app.post("/conversa", async (req, res) => {
     }
 
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
-
     const sinalizouFechamento = await detectarIntencao(nomeCliente, texto, contextoExtra);
+
     if (sinalizouFechamento) {
       console.log("[IA] Intenção de fechamento detectada.");
       await checklistFechamento({ nomeCliente, nomeVendedor: nomeVendedorRaw, numeroVendedor, contexto: contextoExtra, texto });
@@ -139,11 +142,10 @@ app.post("/analisar-imagem", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 
-// Teste isolado de resposta — só chama se não estivermos em pausa
-if (process.env.PAUSE_ALERTS !== "true") {
-  verificarRespostaOuEscalonar({
-    nomeCliente: "Teste Forçado",
-    nomeVendedor: "Fernando Fonseca",
-    numeroVendedor: "5562985293035"
-  });
-}
+// sempre executa o teste isolado de resposta,
+// mas as chamadas de envio serão filtradas por PAUSE_ALERTS na função enviarMensagem()
+verificarRespostaOuEscalonar({
+  nomeCliente: "Teste Forçado",
+  nomeVendedor: "Fernando Fonseca",
+  numeroVendedor: "5562985293035"
+});
