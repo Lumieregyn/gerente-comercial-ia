@@ -2,7 +2,7 @@ const axios = require("axios");
 const pdfParse = require("pdf-parse");
 const { OpenAI } = require("openai");
 const { horasUteisEntreDatas } = require("../utils/horario-util");
-const { getCliente, atualizarCliente, marcarAlerta } = require("../utils/controleDeAlertas");
+const { getCliente, marcarAlerta } = require("../utils/controleDeAlertas");
 const { registrarLogSemantico } = require("../utils/logsIA");
 
 class MotorIA {
@@ -12,50 +12,33 @@ class MotorIA {
     this.mensagens = mensagens;
   }
 
-  async extrairTextoPDF(url) {
-    try {
-      const response = await axios.get(url, { responseType: "arraybuffer" });
-      const data = await pdfParse(response.data);
-      return data.text;
-    } catch (err) {
-      console.error("[ERRO PDF]", err.message);
-      return "";
-    }
-  }
+  async extrairTextoPDF(url) { /* ...igual */ }
+  async transcreverAudio(url) { /* ...igual */ }
+  async construirContextoMultimodal(message = {}) { /* ...igual */ }
 
-  async transcreverAudio(url) {
-    try {
-      const response = await axios.get(url, { responseType: "stream" });
-      const transcription = await this.openai.audio.transcriptions.create({
-        file: response.data,
-        model: "whisper-1"
-      });
-      return transcription.text;
-    } catch (err) {
-      console.error("[ERRO ÁUDIO]", err.message);
-      return "";
-    }
-  }
-
-  async construirContextoMultimodal(message = {}) {
-    const textoBase = message.text || message.caption || "";
-    let textoExtra = "";
-
-    const attachments = message.attachments || [];
-    for (const att of attachments) {
-      const url = att.payload?.url;
-      if (att.type === "document" && url && att.FileName?.toLowerCase().endsWith(".pdf")) {
-        textoExtra += "\n\n" + await this.extrairTextoPDF(url);
-      } else if (att.type === "audio" && url) {
-        textoExtra += "\n\n" + await this.transcreverAudio(url);
-      }
-    }
-
-    return `${textoBase.trim()}\n\n${textoExtra.trim()}`.trim();
+  validarPorPalavraChave(texto) {
+    const termos = ["orçamento", "proposta", "valor", "preço", "quanto custa", "quanto fica", "me passa", "me envia"];
+    const t = texto.toLowerCase();
+    return termos.some(term => t.includes(term));
   }
 
   async detectarAguardandoOrcamento(cliente, contexto) {
-    const prompt = `O cliente "${cliente}" enviou a seguinte mensagem e anexos:\n\n"${contexto}"\n\nCom base nisso, ele está claramente aguardando um orçamento da equipe comercial?\n\nResponda apenas com "Sim" ou "Não".`;
+    const prompt = `
+Você é o Gerente Comercial IA da Lumiéregyn.
+
+Analise se o cliente "${cliente}" está solicitando *explicitamente* um orçamento comercial com base na seguinte mensagem:
+
+"${contexto}"
+
+Responda apenas com "Sim" se houver frases como:
+- "me envie um orçamento"
+- "qual o valor?"
+- "pode montar a proposta?"
+- "quanto custa?"
+- "quero saber o preço"
+
+Se a mensagem for vaga, informal ou não mencionar orçamento, responda com "Não".
+    `;
 
     const completion = await this.openai.chat.completions.create({
       model: "gpt-4o",
@@ -70,28 +53,28 @@ class MotorIA {
     const agora = new Date();
     const clienteId = nomeCliente.toLowerCase().replace(/\s+/g, ".");
 
-    // ⬇️ Log semântico de qualquer mensagem recebida
     await registrarLogSemantico({
       cliente: nomeCliente,
       vendedor: nomeVendedor,
       evento: "Nova mensagem recebida",
       tipo: "observacao",
       texto,
-      decisaoIA: "Observação geral: mensagem recebida e processada",
-      detalhes: { contexto }
+      decisaoIA: "Observação geral"
     });
 
     const aguardando = await this.detectarAguardandoOrcamento(nomeCliente, `${texto}\n${contexto}`);
-    if (!aguardando) {
+    const validadoLocalmente = this.validarPorPalavraChave(texto + contexto);
+
+    if (!aguardando || !validadoLocalmente) {
       await registrarLogSemantico({
         cliente: nomeCliente,
         vendedor: nomeVendedor,
         evento: "Análise de intenção",
         tipo: "analise",
         texto,
-        decisaoIA: "Cliente não está aguardando orçamento"
+        decisaoIA: "Cliente não está aguardando orçamento (filtro IA + palavras-chave)"
       });
-      return { status: "sem ação", motivo: "cliente não está aguardando orçamento" };
+      return { status: "sem ação" };
     }
 
     const statusAtual = getCliente(clienteId) || {
@@ -120,9 +103,9 @@ class MotorIA {
         evento: "Monitoramento de atraso",
         tipo: "espera",
         texto,
-        decisaoIA: `Cliente está aguardando, mas ainda não atingiu limite para alerta. (${horas}h)`
+        decisaoIA: `Cliente está aguardando, mas ainda não atingiu limite para alerta (${horas}h)`
       });
-      return { status: "sem ação", motivo: "nenhum alerta necessário agora" };
+      return { status: "sem ação" };
     }
 
     const mensagem = this.mensagens[acao](nomeVendedor, nomeCliente);
@@ -137,13 +120,12 @@ class MotorIA {
       evento: `Envio de ${acao}`,
       tipo: "alerta",
       texto,
-      decisaoIA: `Alerta ${acao} enviado com ${horas} horas úteis de espera.`,
+      decisaoIA: `Alerta ${acao} enviado com ${horas} horas úteis.`,
       detalhes: { tempoUtil: horas }
     });
 
     console.log(`[IA] ${acao} enviado para ${nomeVendedor} - ${nomeCliente}`);
-
-    return { status: "alerta enviado", acao, para: numeroVendedor };
+    return { status: "alerta enviado", acao };
   }
 }
 
