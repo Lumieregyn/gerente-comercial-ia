@@ -26,31 +26,23 @@ class MotorIA {
   const prompt = `
 Você é a Gerente Comercial IA da Lumiéregyn.
 
-Sua função é identificar quando um cliente está aguardando o envio de um orçamento comercial com base em uma nova mensagem recebida. 
+Seu papel é garantir que alertas só sejam disparados se o cliente realmente estiver AGUARDANDO um orçamento comercial.
 
-Analise se a seguinte mensagem **continua um contexto onde o cliente está esperando retorno da equipe comercial** com valores, proposta, aprovação ou fechamento.
+SÓ diga "Sim" se a mensagem contiver um pedido ou continuação clara de orçamento, como:
+- "Pode me passar o valor?"
+- "Fechamos aquele orçamento?"
+- "Preciso da proposta ainda"
 
-Exemplos de mensagens que indicam essa expectativa:
-- "Você conseguiu ver aquele valor?"
-- "Pode seguir com aquela proposta"
-- "Estou aguardando a proposta"
-- "Vai ser aquela de 2 unidades mesmo"
+Responda "Não" se a mensagem for:
+- Um cumprimento ("Bom dia", "Tudo bem?")
+- Um aviso informal ("Vou te mandar algo", "A partir de amanhã...")
+- Uma frase sem pedido direto de orçamento
+- Um comentário emocional ("kkk", "obrigado", "depois vejo isso")
 
-Mensagens que NÃO indicam essa expectativa:
-- "kkk"
-- "tá bom, obrigado"
-- "beleza, vamos falando"
-- "qual seu nome?"
-
-Agora avalie o caso a seguir:
-
-Cliente: ${cliente}
-
-Mensagem e contexto:
-
+Mensagem do cliente "${cliente}":
 "${contexto}"
 
-Responda apenas com "Sim" ou "Não".
+O cliente está claramente esperando um orçamento? Responda apenas com "Sim" ou "Não".
 `;
 
   const completion = await this.openai.chat.completions.create({
@@ -61,6 +53,7 @@ Responda apenas com "Sim" ou "Não".
   const resposta = completion.choices[0].message.content.toLowerCase();
   return resposta.includes("sim");
 }
+
 
 
   async decidirAlerta({ nomeCliente, nomeVendedor, numeroVendedor, criadoEm, texto, contexto }) {
