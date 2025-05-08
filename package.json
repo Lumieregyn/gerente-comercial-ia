@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@google-cloud/vision": "^2.4.0",
-    "@pinecone-database/pinecone": "^0.2.2",
+    "@pinecone-database/pinecone": "^0.2.2"
     "axios": "^1.6.7",
     "body-parser": "^1.20.2",
     "dotenv": "^16.3.1",
