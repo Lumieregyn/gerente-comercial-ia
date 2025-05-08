@@ -11,7 +11,7 @@ const { processarAlertaDeOrcamento } = require("./servicos/alertasOrcamento");
 const { checklistFechamento } = require("./servicos/checklistFechamento");
 const { verificarPedidoEspecial } = require("./servicos/verificarPedidoEspecial");
 const { mensagemEhRuido } = require("./utils/controleDeRuido");
-const { verificarRespostaOuEscalonar } = require("./servicos/verificarRespostaVendedor");
+const { logIA } = require("./utils/logger");
 
 const VENDEDORES = require("./vendedores.json");
 const app = express();
@@ -37,7 +37,15 @@ app.post("/conversa", async (req, res) => {
     const texto = message.text || message.caption || "[attachment]";
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // 🎯 Bloco 8 – Filtro de Ruído
+    await logIA({
+      cliente: nomeCliente,
+      vendedor: attendant.Name || "Desconhecido",
+      evento: "Mensagem recebida",
+      tipo: "entrada",
+      texto,
+      decisaoIA: "Mensagem inicial recebida e encaminhada para análise"
+    });
+
     if (mensagemEhRuido(texto)) {
       console.log("[RUÍDO] Mensagem irrelevante detectada. Ignorando.");
       return res.json({ status: "Ignorado por ruído." });
@@ -51,23 +59,47 @@ app.post("/conversa", async (req, res) => {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
           if (t) {
-            console.log("[AUDIO] Transcrição obtida:", t);
             contextoExtra += "\n" + t;
+            await logIA({
+              cliente: nomeCliente,
+              vendedor: attendant.Name || "Desconhecido",
+              evento: "Áudio transcrito",
+              tipo: "entrada",
+              texto: t,
+              decisaoIA: "Transcrição via Whisper concluída"
+            });
           }
         }
+
         if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
-            console.log("[PDF] Texto extraído:", t);
             contextoExtra += "\n" + t;
+            await logIA({
+              cliente: nomeCliente,
+              vendedor: attendant.Name || "Desconhecido",
+              evento: "PDF processado",
+              tipo: "entrada",
+              texto: t,
+              decisaoIA: "Texto extraído com sucesso do PDF"
+            });
           }
         }
+
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
           if (t) {
-            console.log("[IMAGEM] Análise retornou:", t);
             contextoExtra += "\n" + t;
+            await logIA({
+              cliente: nomeCliente,
+              vendedor: attendant.Name || "Desconhecido",
+              evento: "Imagem analisada",
+              tipo: "entrada",
+              texto: t,
+              decisaoIA: "OCR concluído na imagem recebida"
+            });
           }
+
           try {
             const resp = await require("axios").get(a.payload.url, { responseType: "arraybuffer" });
             imagemBase64 = Buffer.from(resp.data).toString("base64");
@@ -81,24 +113,52 @@ app.post("/conversa", async (req, res) => {
     const nomeVendedorRaw = attendant.Name || "";
     const keyVend = normalizeNome(nomeVendedorRaw);
     const numeroVendedor = VENDEDORES[keyVend];
+
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor não mapeado: ${nomeVendedorRaw}`);
       return res.json({ warning: "Vendedor não mapeado." });
     }
 
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
-    const sinalizouFechamento = await detectarIntencao(nomeCliente, texto, contextoExtra);
 
+    const sinalizouFechamento = await detectarIntencao(nomeCliente, texto, contextoExtra);
     if (sinalizouFechamento) {
       console.log("[IA] Intenção de fechamento detectada.");
-      await checklistFechamento({ nomeCliente, nomeVendedor: nomeVendedorRaw, numeroVendedor, contexto: contextoExtra, texto });
+
+      await checklistFechamento({
+        nomeCliente,
+        nomeVendedor: nomeVendedorRaw,
+        numeroVendedor,
+        contexto: contextoExtra,
+        texto
+      });
+
       if (imagemBase64) {
         const { compararImagemProduto } = require("./servicos/compararImagemProduto");
-        await compararImagemProduto({ nomeCliente, nomeVendedor: nomeVendedorRaw, numeroVendedor, imagemBase64, contexto: contextoExtra });
+        await compararImagemProduto({
+          nomeCliente,
+          nomeVendedor: nomeVendedorRaw,
+          numeroVendedor,
+          imagemBase64,
+          contexto: contextoExtra
+        });
       }
-      await verificarPedidoEspecial({ nomeCliente, nomeVendedor: nomeVendedorRaw, numeroVendedor, contexto: contextoExtra });
+
+      await verificarPedidoEspecial({
+        nomeCliente,
+        nomeVendedor: nomeVendedorRaw,
+        numeroVendedor,
+        contexto: contextoExtra
+      });
+
     } else {
-      await processarAlertaDeOrcamento({ nomeCliente, nomeVendedor: nomeVendedorRaw, numeroVendedor, criadoEm, texto });
+      await processarAlertaDeOrcamento({
+        nomeCliente,
+        nomeVendedor: nomeVendedorRaw,
+        numeroVendedor,
+        criadoEm,
+        texto
+      });
     }
 
     res.json({ status: "Processado com inteligência" });
@@ -108,44 +168,5 @@ app.post("/conversa", async (req, res) => {
   }
 });
 
-app.post("/analisar-imagem", async (req, res) => {
-  try {
-    const { imagemBase64 } = req.body;
-    if (!imagemBase64) return res.status(400).json({ erro: "Imagem não enviada." });
-
-    const { OpenAI } = require("openai");
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "Você é um especialista técnico em iluminação. Descreva o tipo de luminária, cor, modelo e aplicação do produto na imagem." },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "Analise e descreva tecnicamente essa luminária:" },
-            { type: "image_url", image_url: { url: `data:image/png;base64,${imagemBase64}` } }
-          ]
-        }
-      ],
-      max_tokens: 500
-    });
-
-    const resposta = completion.choices[0].message.content;
-    res.json({ descricao: resposta });
-  } catch (err) {
-    console.error("[ERRO GPT-4V]", err.message);
-    res.status(500).json({ erro: "Erro ao analisar imagem com GPT-4o." });
-  }
-});
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
-
-// sempre executa o teste isolado de resposta,
-// mas as chamadas de envio serão filtradas por PAUSE_ALERTS na função enviarMensagem()
-verificarRespostaOuEscalonar({
-  nomeCliente: "Teste Forçado",
-  nomeVendedor: "Fernando Fonseca",
-  numeroVendedor: "5562985293035"
-});
