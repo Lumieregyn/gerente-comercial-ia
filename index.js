@@ -11,6 +11,7 @@ const { processarAlertaDeOrcamento } = require("./servicos/alertasOrcamento");
 const { checklistFechamento } = require("./servicos/checklistFechamento");
 const { verificarPedidoEspecial } = require("./servicos/verificarPedidoEspecial");
 const { mensagemEhRuido } = require("./utils/controleDeRuido");
+const { verificarRespostaOuEscalonar } = require("./servicos/verificarRespostaVendedor");
 
 const VENDEDORES = require("./vendedores.json");
 const app = express();
@@ -21,6 +22,12 @@ function normalizeNome(nome = "") {
 }
 
 app.post("/conversa", async (req, res) => {
+  // Se quisermos pausar todo o fluxo de alertas/processamento:
+  if (process.env.PAUSE_ALERTS === "true") {
+    console.log("[PAUSA] PAUSE_ALERTS ativo: nenhum processamento será executado.");
+    return res.json({ status: "Alertas pausados." });
+  }
+
   try {
     const payload = req.body.payload;
     if (!payload || !payload.user || !(payload.message || payload.Message) || !payload.channel) {
@@ -36,7 +43,7 @@ app.post("/conversa", async (req, res) => {
     const texto = message.text || message.caption || "[attachment]";
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // 🎯 Bloco 8 – Filtro de Ruído
+    // Bloco 8 – Filtro de Ruído
     if (mensagemEhRuido(texto)) {
       console.log("[RUÍDO] Mensagem irrelevante detectada. Ignorando.");
       return res.json({ status: "Ignorado por ruído." });
@@ -51,16 +58,13 @@ app.post("/conversa", async (req, res) => {
           const t = await transcreverAudio(a.payload.url);
           if (t) contextoExtra += "\n" + t;
         }
-
         if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) contextoExtra += "\n" + t;
         }
-
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
           if (t) contextoExtra += "\n" + t;
-
           try {
             const resp = await require("axios").get(a.payload.url, { responseType: "arraybuffer" });
             imagemBase64 = Buffer.from(resp.data).toString("base64");
@@ -74,7 +78,6 @@ app.post("/conversa", async (req, res) => {
     const nomeVendedorRaw = attendant.Name || "";
     const keyVend = normalizeNome(nomeVendedorRaw);
     const numeroVendedor = VENDEDORES[keyVend];
-
     if (!numeroVendedor) {
       console.warn(`[ERRO] Vendedor não mapeado: ${nomeVendedorRaw}`);
       return res.json({ warning: "Vendedor não mapeado." });
@@ -85,41 +88,14 @@ app.post("/conversa", async (req, res) => {
     const sinalizouFechamento = await detectarIntencao(nomeCliente, texto, contextoExtra);
     if (sinalizouFechamento) {
       console.log("[IA] Intenção de fechamento detectada.");
-
-      await checklistFechamento({
-        nomeCliente,
-        nomeVendedor: nomeVendedorRaw,
-        numeroVendedor,
-        contexto: contextoExtra,
-        texto
-      });
-
+      await checklistFechamento({ nomeCliente, nomeVendedor: nomeVendedorRaw, numeroVendedor, contexto: contextoExtra, texto });
       if (imagemBase64) {
         const { compararImagemProduto } = require("./servicos/compararImagemProduto");
-        await compararImagemProduto({
-          nomeCliente,
-          nomeVendedor: nomeVendedorRaw,
-          numeroVendedor,
-          imagemBase64,
-          contexto: contextoExtra
-        });
+        await compararImagemProduto({ nomeCliente, nomeVendedor: nomeVendedorRaw, numeroVendedor, imagemBase64, contexto: contextoExtra });
       }
-
-      await verificarPedidoEspecial({
-        nomeCliente,
-        nomeVendedor: nomeVendedorRaw,
-        numeroVendedor,
-        contexto: contextoExtra
-      });
-
+      await verificarPedidoEspecial({ nomeCliente, nomeVendedor: nomeVendedorRaw, numeroVendedor, contexto: contextoExtra });
     } else {
-      await processarAlertaDeOrcamento({
-        nomeCliente,
-        nomeVendedor: nomeVendedorRaw,
-        numeroVendedor,
-        criadoEm,
-        texto
-      });
+      await processarAlertaDeOrcamento({ nomeCliente, nomeVendedor: nomeVendedorRaw, numeroVendedor, criadoEm, texto });
     }
 
     res.json({ status: "Processado com inteligência" });
@@ -132,9 +108,7 @@ app.post("/conversa", async (req, res) => {
 app.post("/analisar-imagem", async (req, res) => {
   try {
     const { imagemBase64 } = req.body;
-    if (!imagemBase64) {
-      return res.status(400).json({ erro: "Imagem não enviada." });
-    }
+    if (!imagemBase64) return res.status(400).json({ erro: "Imagem não enviada." });
 
     const { OpenAI } = require("openai");
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -142,20 +116,12 @@ app.post("/analisar-imagem", async (req, res) => {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        {
-          role: "system",
-          content: "Você é um especialista técnico em iluminação. Descreva o tipo de luminária, cor, modelo e aplicação do produto na imagem."
-        },
+        { role: "system", content: "Você é um especialista técnico em iluminação. Descreva o tipo de luminária, cor, modelo e aplicação do produto na imagem." },
         {
           role: "user",
           content: [
             { type: "text", text: "Analise e descreva tecnicamente essa luminária:" },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/png;base64,${imagemBase64}`
-              }
-            }
+            { type: "image_url", image_url: { url: `data:image/png;base64,${imagemBase64}` } }
           ]
         }
       ],
@@ -172,11 +138,12 @@ app.post("/analisar-imagem", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
-const { verificarRespostaOuEscalonar } = require("./servicos/verificarRespostaVendedor");
 
-verificarRespostaOuEscalonar({
-  nomeCliente: "Teste Forçado",
-  nomeVendedor: "Fernando Fonseca",
-  numeroVendedor: "5562985293035"
-});
-
+// Teste isolado de resposta — só chama se não estivermos em pausa
+if (process.env.PAUSE_ALERTS !== "true") {
+  verificarRespostaOuEscalonar({
+    nomeCliente: "Teste Forçado",
+    nomeVendedor: "Fernando Fonseca",
+    numeroVendedor: "5562985293035"
+  });
+}
