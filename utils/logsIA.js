@@ -3,22 +3,18 @@ const { OpenAI } = require("openai");
 const { v4: uuidv4 } = require("uuid");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-const pinecone = new Pinecone({
-  apiKey: process.env.PINECONE_API_KEY
-});
+const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 
 const indexName = "lumiere-logs";
-const namespace = undefined; // ou "prod" se quiser separar ambientes
+const namespace = undefined;
 
 async function gerarEmbedding(texto) {
   try {
-    const embeddingResponse = await openai.embeddings.create({
+    const res = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: texto
     });
-
-    return embeddingResponse.data[0].embedding;
+    return res.data[0].embedding;
   } catch (err) {
     console.error("[IA] Erro ao gerar embedding:", err.message);
     return null;
@@ -48,9 +44,9 @@ async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, d
     const index = pinecone.index(indexName);
     await index.upsert([vector], namespace);
 
-    console.log(`[IA] Log semântico salvo: ${evento} (${cliente})`);
+    console.log(`[PINECONE] Registro inserido: ${evento} (${cliente})`);
   } catch (err) {
-    console.error("[IA] Erro ao registrar log no Pinecone:", err.message);
+    console.error("[PINECONE] Falha ao registrar log:", err.message);
   }
 }
 
