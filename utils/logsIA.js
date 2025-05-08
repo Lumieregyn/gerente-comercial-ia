@@ -1,9 +1,13 @@
-const { PineconeClient } = require('@pinecone-database/pinecone');
-const { OpenAI } = require('openai');
-const { v4: uuidv4 } = require('uuid');
+// utils/logsIA.js
 
+const { PineconeClient } = require("@pinecone-database/pinecone");
+const { OpenAI } = require("openai");
+const { v4: uuidv4 } = require("uuid");
+
+// Inicializa OpenAI
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// Inicializa Pinecone Client
 const pinecone = new PineconeClient();
 let pineconeIndex = null;
 
@@ -11,33 +15,34 @@ let pineconeIndex = null;
   try {
     await pinecone.init({
       apiKey: process.env.PINECONE_API_KEY,
-      environment: process.env.PINECONE_ENVIRONMENT,
+      environment: process.env.PINECONE_ENVIRONMENT, // ex: "us-east-1"
     });
-
-    pineconeIndex = pinecone.Index('lumiere-logs');
-    console.log('[PINECONE] Conexão com índice estabelecida.');
+    pineconeIndex = pinecone.Index("lumiere-logs");
+    console.log("[PINECONE] Conexão com índice estabelecida.");
   } catch (err) {
-    console.error('[PINECONE] Erro ao inicializar:', err.message);
+    console.error("[PINECONE] Erro ao inicializar:", err.message);
   }
 })();
 
+// Gera embedding com OpenAI
 async function gerarEmbedding(texto) {
   try {
     const res = await openai.embeddings.create({
-      model: 'text-embedding-3-small',
+      model: "text-embedding-3-small",
       input: texto,
     });
     return res.data[0].embedding;
   } catch (err) {
-    console.error('[IA] Erro ao gerar embedding:', err.message);
+    console.error("[IA] Erro ao gerar embedding:", err.message);
     return null;
   }
 }
 
+// Registra log semântico no Pinecone
 async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
   try {
     if (!pineconeIndex) {
-      console.warn('[PINECONE] Índice não está pronto ainda.');
+      console.warn("[PINECONE] Índice não está pronto ainda.");
       return;
     }
 
@@ -59,10 +64,10 @@ async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, d
       },
     };
 
-    await pineconeIndex.upsert({ vectors: [vector] });
+    await pineconeIndex.upsert([vector]);
     console.log(`[PINECONE] Registro inserido: ${evento} (${cliente})`);
   } catch (err) {
-    console.error('[PINECONE] Falha ao registrar log:', err.message);
+    console.error("[PINECONE] Falha ao registrar log:", err.message);
   }
 }
 
