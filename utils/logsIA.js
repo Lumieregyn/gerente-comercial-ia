@@ -1,35 +1,35 @@
-const { Pinecone } = require("@pinecone-database/pinecone");
-const { OpenAI } = require("openai");
-const { v4: uuidv4 } = require("uuid");
+const { PineconeClient } = require('@pinecone-database/pinecone');
+const { OpenAI } = require('openai');
+const { v4: uuidv4 } = require('uuid');
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const pinecone = new Pinecone();
+const pinecone = new PineconeClient();
 let pineconeIndex = null;
 
 (async () => {
   try {
     await pinecone.init({
       apiKey: process.env.PINECONE_API_KEY,
-      environment: process.env.PINECONE_ENVIRONMENT // exemplo: "us-east-1"
+      environment: process.env.PINECONE_ENVIRONMENT,
     });
 
-    pineconeIndex = pinecone.Index("lumiere-logs");
-    console.log("[PINECONE] Conexão com índice estabelecida.");
+    pineconeIndex = pinecone.Index('lumiere-logs');
+    console.log('[PINECONE] Conexão com índice estabelecida.');
   } catch (err) {
-    console.error("[PINECONE] Erro ao inicializar:", err.message);
+    console.error('[PINECONE] Erro ao inicializar:', err.message);
   }
 })();
 
 async function gerarEmbedding(texto) {
   try {
     const res = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: texto
+      model: 'text-embedding-3-small',
+      input: texto,
     });
     return res.data[0].embedding;
   } catch (err) {
-    console.error("[IA] Erro ao gerar embedding:", err.message);
+    console.error('[IA] Erro ao gerar embedding:', err.message);
     return null;
   }
 }
@@ -37,7 +37,7 @@ async function gerarEmbedding(texto) {
 async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
   try {
     if (!pineconeIndex) {
-      console.warn("[PINECONE] Índice não está pronto ainda.");
+      console.warn('[PINECONE] Índice não está pronto ainda.');
       return;
     }
 
@@ -55,14 +55,14 @@ async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, d
         texto,
         decisaoIA,
         ...detalhes,
-        timestamp: new Date().toISOString()
-      }
+        timestamp: new Date().toISOString(),
+      },
     };
 
-    await pineconeIndex.upsert([vector]);
+    await pineconeIndex.upsert({ vectors: [vector] });
     console.log(`[PINECONE] Registro inserido: ${evento} (${cliente})`);
   } catch (err) {
-    console.error("[PINECONE] Falha ao registrar log:", err.message);
+    console.error('[PINECONE] Falha ao registrar log:', err.message);
   }
 }
 
