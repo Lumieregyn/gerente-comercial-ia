@@ -23,31 +23,45 @@ class MotorIA {
   }
 
   async detectarAguardandoOrcamento(cliente, contexto) {
-    const prompt = `
-Você é o Gerente Comercial IA da Lumiéregyn.
+  const prompt = `
+Você é a Gerente Comercial IA da Lumiéregyn.
 
-Analise se o cliente "${cliente}" está solicitando *explicitamente* um orçamento comercial com base na seguinte mensagem:
+Sua função é identificar quando um cliente está aguardando o envio de um orçamento comercial com base em uma nova mensagem recebida. 
+
+Analise se a seguinte mensagem **continua um contexto onde o cliente está esperando retorno da equipe comercial** com valores, proposta, aprovação ou fechamento.
+
+Exemplos de mensagens que indicam essa expectativa:
+- "Você conseguiu ver aquele valor?"
+- "Pode seguir com aquela proposta"
+- "Estou aguardando a proposta"
+- "Vai ser aquela de 2 unidades mesmo"
+
+Mensagens que NÃO indicam essa expectativa:
+- "kkk"
+- "tá bom, obrigado"
+- "beleza, vamos falando"
+- "qual seu nome?"
+
+Agora avalie o caso a seguir:
+
+Cliente: ${cliente}
+
+Mensagem e contexto:
 
 "${contexto}"
 
-Responda apenas com "Sim" se houver frases como:
-- "me envie um orçamento"
-- "qual o valor?"
-- "pode montar a proposta?"
-- "quanto custa?"
-- "quero saber o preço"
+Responda apenas com "Sim" ou "Não".
+`;
 
-Se a mensagem for vaga, informal ou não mencionar orçamento, responda com "Não".
-    `;
+  const completion = await this.openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [{ role: "user", content: prompt }]
+  });
 
-    const completion = await this.openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [{ role: "user", content: prompt }]
-    });
+  const resposta = completion.choices[0].message.content.toLowerCase();
+  return resposta.includes("sim");
+}
 
-    const resposta = completion.choices[0].message.content.toLowerCase();
-    return resposta.includes("sim");
-  }
 
   async decidirAlerta({ nomeCliente, nomeVendedor, numeroVendedor, criadoEm, texto, contexto }) {
     const agora = new Date();
