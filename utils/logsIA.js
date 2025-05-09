@@ -7,20 +7,23 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 let pineconeIndex = null;
 
-// Inicialização única do Pinecone 5.x via dynamic import
+// Inicialização única do Pinecone 5.x via import ESM
 const initPromise = (async () => {
   try {
-    // Carrega como ESM
     const pkg = await import("@pinecone-database/pinecone");
-    const PineconeClass = pkg.Pinecone || pkg.default?.Pinecone;
+    // fallback de extração: default (caso seja função) → Pinecone → PineconeClient
+    const PineconeClass =
+      (typeof pkg.default === "function" && pkg.default) ||
+      pkg.Pinecone ||
+      pkg.PineconeClient;
     if (typeof PineconeClass !== "function") {
-      throw new Error("Classe Pinecone não encontrada no módulo");
+      throw new Error("Não encontrei construtor Pinecone no módulo");
     }
 
-    // Instancia e configura
+    // Instancia o cliente
     const pinecone = new PineconeClass({
       apiKey: process.env.PINECONE_API_KEY,
-      environment: process.env.PINECONE_ENVIRONMENT // ex: "us-east-1"
+      environment: process.env.PINECONE_ENVIRONMENT, // ex: "us-east-1"
     });
 
     // Obtém o índice
@@ -31,12 +34,12 @@ const initPromise = (async () => {
   }
 })();
 
-// Gera embedding com OpenAI
+// Função para gerar embedding
 async function gerarEmbedding(texto) {
   try {
     const res = await openai.embeddings.create({
       model: "text-embedding-3-small",
-      input: texto
+      input: texto,
     });
     return res.data[0].embedding;
   } catch (err) {
@@ -45,7 +48,7 @@ async function gerarEmbedding(texto) {
   }
 }
 
-// Registra log semântico aguardando initPromise
+// Registro semântico aguardando initPromise
 async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
   await initPromise;
   if (!pineconeIndex) {
@@ -67,12 +70,12 @@ async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, d
       texto,
       decisaoIA,
       ...detalhes,
-      timestamp: new Date().toISOString()
-    }
+      timestamp: new Date().toISOString(),
+    },
   };
 
   try {
-    // Na v5.x, upsert recebe um objeto com key 'vectors'
+    // versão 5.x: upsert recebe { vectors: [...] }
     await pineconeIndex.upsert({ vectors: [vector] });
     console.log(`[PINECONE] Registro inserido: ${evento} (${cliente})`);
   } catch (err) {
