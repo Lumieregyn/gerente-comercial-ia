@@ -1,4 +1,14 @@
 // utils/logsIA.js
+// logo no início de utils/logsIA.js
+;(async()=>{
+  try {
+    const pineconeModule = await import("@pinecone-database/pinecone");
+    console.log("[DEBUG pineconeModule keys]", Object.keys(pineconeModule));
+    console.log("[DEBUG pineconeModule default?]", typeof pineconeModule.default);
+  } catch(err){
+    console.error("[DEBUG pinecone import ERR]", err);
+  }
+})();
 
 const { v4: uuidv4 } = require("uuid");
 
