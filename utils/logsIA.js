@@ -1,24 +1,6 @@
 // utils/logsIA.js
 
 const { v4: uuidv4 } = require("uuid");
-const pineconeModule = require("@pinecone-database/pinecone");
-
-// fallback para descobrir onde está a classe
-const PineconeConstructor =
-  // nome oficial na v5.x
-  pineconeModule.PineconeClient ||
-  // alias possível
-  pineconeModule.Pinecone ||
-  // se exportou como default
-  pineconeModule.default ||
-  // se o require retornou a função diretamente
-  (typeof pineconeModule === "function" ? pineconeModule : null);
-
-if (!PineconeConstructor) {
-  console.error(
-    "[PINECONE] Falha ao inicializar: não encontrei PineconeClient, Pinecone ou default no módulo!"
-  );
-}
 
 const {
   PINECONE_API_KEY,
@@ -29,15 +11,37 @@ const {
 let index = null;
 
 async function initPinecone() {
-  if (index || !PineconeConstructor) return;
+  if (index) return;
+
+  let pineconeMod;
   try {
-    // instanciação conforme v5.x
-    const client = new PineconeConstructor();
+    // import dinâmico para ESM
+    pineconeMod = await import("@pinecone-database/pinecone");
+  } catch (err) {
+    console.error("[PINECONE] import falhou:", err);
+    return;
+  }
+
+  // pega o construtor de todas as formas possíveis
+  const PineconeClient =
+    pineconeMod.PineconeClient ||
+    pineconeMod.Pinecone ||
+    pineconeMod.default?.PineconeClient ||
+    pineconeMod.default;
+
+  if (typeof PineconeClient !== "function") {
+    console.error(
+      "[PINECONE] Falha ao inicializar: não encontrei um construtor Pinecone válido no módulo!"
+    );
+    return;
+  }
+
+  try {
+    const client = new PineconeClient();
     await client.init({
       apiKey: PINECONE_API_KEY,
       environment: PINECONE_ENVIRONMENT,
     });
-    // aponta para o índice
     index = client.Index(PINECONE_INDEX_NAME);
     console.log(`[PINECONE] inicializado: ${PINECONE_INDEX_NAME}`);
   } catch (err) {
@@ -61,7 +65,15 @@ async function registrarLogSemantico({
   const record = {
     id,
     text: `[${evento}] cliente=${cliente} vendedor=${vendedor} tipo=${tipo}\n${texto}\n→ decisão: ${decisaoIA}`,
-    metadata: { cliente, vendedor, evento, tipo, decisaoIA, detalhes, timestamp: new Date().toISOString() },
+    metadata: {
+      cliente,
+      vendedor,
+      evento,
+      tipo,
+      decisaoIA,
+      detalhes,
+      timestamp: new Date().toISOString(),
+    },
   };
 
   try {
