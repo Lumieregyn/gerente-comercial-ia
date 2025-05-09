@@ -3,13 +3,15 @@
 const { OpenAI } = require("openai");
 const { v4: uuidv4 } = require("uuid");
 
+// Load OpenAI client
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 let pineconeIndex = null;
 
-;(async () => {
+// Promise que inicializa o Pinecone e só resolve quando pineconeIndex estiver pronto
+const initPromise = (async () => {
   try {
-    // dynamic import para carregar o ESM do Pinecone 5.x
+    // Dynamic import para ESM do Pinecone v5.x
     const { PineconeClient } = await import("@pinecone-database/pinecone");
     const pinecone = new PineconeClient();
 
@@ -25,6 +27,7 @@ let pineconeIndex = null;
   }
 })();
 
+// Gera embedding com OpenAI
 async function gerarEmbedding(texto) {
   try {
     const res = await openai.embeddings.create({
@@ -38,9 +41,13 @@ async function gerarEmbedding(texto) {
   }
 }
 
+// Registra log semântico no Pinecone, aguardando initPromise
 async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
+  // Espera o pineconeIndex ficar disponível
+  await initPromise;
+
   if (!pineconeIndex) {
-    console.warn("[PINECONE] Ín­dice não pronto ainda.");
+    console.warn("[PINECONE] Índice não ficou pronto.");
     return;
   }
 
@@ -58,12 +65,11 @@ async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, d
       texto,
       decisaoIA,
       ...detalhes,
-      timestamp: new Date().toISOString()
-    }
+      timestamp: new Date().toISOString(),
+    },
   };
 
   try {
-    // upsert no índice
     await pineconeIndex.upsert({ vectors: [vector] });
     console.log(`[PINECONE] Registro inserido: ${evento} (${cliente})`);
   } catch (err) {
