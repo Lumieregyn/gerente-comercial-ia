@@ -3,19 +3,16 @@
 const { OpenAI } = require("openai");
 const { v4: uuidv4 } = require("uuid");
 
-// Load OpenAI client
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 let pineconeIndex = null;
 
-// Promise que inicializa o Pinecone e só resolve quando pineconeIndex estiver pronto
+// Inicia Pinecone (ESM) dinamicamente
 const initPromise = (async () => {
   try {
-    // Dynamic import para ESM do Pinecone v5.x
-    const { PineconeClient } = await import("@pinecone-database/pinecone");
-    const pinecone = new PineconeClient();
-
-    await pinecone.init({
+    // Import ESM da versão 5.x
+    const { Pinecone } = await import("@pinecone-database/pinecone");
+    const pinecone = new Pinecone({
       apiKey: process.env.PINECONE_API_KEY,
       environment: process.env.PINECONE_ENVIRONMENT, // ex: "us-east-1"
     });
@@ -27,7 +24,6 @@ const initPromise = (async () => {
   }
 })();
 
-// Gera embedding com OpenAI
 async function gerarEmbedding(texto) {
   try {
     const res = await openai.embeddings.create({
@@ -41,9 +37,8 @@ async function gerarEmbedding(texto) {
   }
 }
 
-// Registra log semântico no Pinecone, aguardando initPromise
 async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
-  // Espera o pineconeIndex ficar disponível
+  // Aguarda Pinecone ficar pronto
   await initPromise;
 
   if (!pineconeIndex) {
@@ -70,6 +65,7 @@ async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, d
   };
 
   try {
+    // Versão 5.x: upsert espera objeto com key 'vectors'
     await pineconeIndex.upsert({ vectors: [vector] });
     console.log(`[PINECONE] Registro inserido: ${evento} (${cliente})`);
   } catch (err) {
