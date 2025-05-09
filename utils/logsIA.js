@@ -1,23 +1,15 @@
 // utils/logsIA.js
-
-const axios = require("axios");
+const axios    = require("axios");
 const { v4: uuidv4 } = require("uuid");
 
 const PINECONE_API_KEY   = process.env.PINECONE_API_KEY;
 const PINECONE_INDEX_URL = process.env.PINECONE_INDEX_URL; 
-// ex: https://lumiere-logs-gqv3rnm.svc.aped-4627-b74a.pinecone.io
+// e.g. https://lumiere-logs-gqv3rnm.svc.aped-4627-b74a.pinecone.io
 
-if (!PINECONE_API_KEY || !PINECONE_INDEX_URL) {
-  console.warn("[PINECONE] Falta configuração de API key ou index URL.");
-}
-
-/**
- * Upsert via REST usando Integrated Embedding
- */
 async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
   const vector = {
     id: uuidv4(),
-    text: texto,   // envia o texto: Pinecone gera o embedding llama-text-embed-v2
+    text: texto,       // **IMPORTANTE**: use exatamente "text", nada de "content" ou outro nome
     metadata: {
       cliente,
       vendedor,
