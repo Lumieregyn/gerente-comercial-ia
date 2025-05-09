@@ -1,44 +1,48 @@
-const { enviarMensagem } = require("./enviarMensagem");
-const MENSAGENS = require("../utils/mensagens");
+// servicos/verificarPedidoEspecial.js
+const axios = require("axios");
+const { OpenAI } = require("openai");
+const { buscarMemoria } = require("../utils/memoria");
 
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+/**
+ * Gatilho de Negociação Especial
+ */
 async function verificarPedidoEspecial({ nomeCliente, nomeVendedor, numeroVendedor, contexto }) {
-  const texto = contexto.toLowerCase();
-  const pendencias = [];
+  const systemPrompt = `
+Você é um Gerente Comercial IA. Avalie se o pedido especial está completo.
+Retorne uma lista numerada de itens faltantes ou problemas críticos.
+`.trim();
 
-  const ehPedidoEspecial = texto.includes("pedido") && !texto.includes("sku") && !texto.includes("código");
+  const hist = await buscarMemoria(contexto, 3);
+  const histText = hist.map((h,i)=>`#${i+1}[${h.score.toFixed(2)}]: ${h.metadata.evento}`).join("\n");
 
-  if (!ehPedidoEspecial) {
-    console.log("[PEDIDO] Produto parece cadastrado. Sem alerta.");
-    return;
+  const userPrompt = `
+Cliente: ${nomeCliente}
+Contexto:\n${contexto}
+
+Histórico relevante:\n${histText}
+
+Liste itens faltantes ou riscos na negociação especial.
+`.trim();
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ],
+    max_tokens: 200
+  });
+
+  const faltas = response.choices[0].message.content.trim();
+  if (!/nenhum|nada/i.test(faltas)) {
+    const msg = `🚨 *Alerta de Negociação Especial*\n\n⚠️ Prezado(a) *${nomeVendedor}*, encontramos riscos:\n\n${faltas}\n\n💡 Verifique e confirme com o cliente antes de prosseguir.`;
+    await axios.post(`${process.env.WPP_URL}/send-message`, {
+      number: numeroVendedor,
+      message: msg
+    });
   }
-
-  if (!texto.includes("imagem")) {
-    pendencias.push("❌ *Produto não tem imagem clara enviada ou referenciada*");
-  }
-
-  if (!texto.includes("aprovado") && !texto.includes("confirmado") && !texto.includes("pode seguir")) {
-    pendencias.push("❌ *Falta confirmação do cliente no diálogo (ex: aprovado, pode seguir)*");
-  }
-
-  if (!texto.includes("prazo") && !texto.includes("disponível") && !texto.includes("entrega")) {
-    pendencias.push("❌ *Prazos de produção ou entrega não informados*");
-  }
-
-  if (!texto.includes("tensão") && !texto.includes("110") && !texto.includes("220")) {
-    pendencias.push("❌ *Tensão elétrica não confirmada com o cliente*");
-  }
-
-  if (pendencias.length === 0) {
-    console.log("[PEDIDO] Produto especial formalizado corretamente.");
-    return;
-  }
-
-  const corpo = pendencias.map(p => `* ${p}`).join("\n");
-
-  const mensagem = `📎 *Alerta de Produto sem Cadastro Formal*\n\n⚠️ Prezado(a) *${nomeVendedor}*, ao revisar o atendimento com o cliente *${nomeCliente}*, identificamos que o item negociado parece ser um produto *sem cadastro padrão (SKU ou imagem)* e apresenta as seguintes pendências:\n\n${corpo}\n\n💡 Recomendamos revisar com o cliente antes de gerar o pedido.\n\n🤖 Gerente Comercial IA`;
-
-  await enviarMensagem(numeroVendedor, mensagem);
-  console.log(`[PEDIDO] Alerta de formalização incompleta enviado para ${nomeVendedor}`);
 }
 
 module.exports = { verificarPedidoEspecial };
