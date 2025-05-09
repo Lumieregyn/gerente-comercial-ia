@@ -7,53 +7,48 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 let pineconeIndex = null;
 
-// Carrega dinamicamente o PineconeClient (CommonJS ou ESM fallback)
+// Inicialização única do PineconeClient, seja v0.x ou v5.x
 const initPromise = (async () => {
   try {
-    // Tenta require normal
     let PineconeClient;
+
+    // 1) Tenta require (CommonJS)
     try {
       const pkg = require("@pinecone-database/pinecone");
-      // fallback para CommonJS legados ou ESM transpiled
-      PineconeClient =
-        pkg.PineconeClient ||
-        pkg.Pinecone ||
-        (pkg.default && (pkg.default.PineconeClient || pkg.default.Pinecone)) ||
-        pkg.default;
+      PineconeClient = pkg.PineconeClient;      // v0.x
+      if (!PineconeClient && pkg.default) {
+        PineconeClient = pkg.default.PineconeClient; // possivelmente v5.x
+      }
+      if (!PineconeClient) throw new Error("nenhum export PineconeClient no require");
     } catch {
-      // se require falhar (ESM puro), usa import
+      // 2) Fallback para import ESM
       const pkg = await import("@pinecone-database/pinecone");
-      PineconeClient = pkg.PineconeClient || pkg.Pinecone;
+      PineconeClient = pkg.PineconeClient || (pkg.default && pkg.default.PineconeClient);
+      if (!PineconeClient) throw new Error("nenhum export PineconeClient no import");
     }
 
-    if (typeof PineconeClient !== "function") {
-      throw new Error("Não consegui encontrar o construtor PineconeClient/Pinecone");
-    }
-
-    // Instancia e inicializa
-    const pinecone = new PineconeClient({
-      apiKey: process.env.PINECONE_API_KEY,
-      environment: process.env.PINECONE_ENVIRONMENT,
-    });
-    if (typeof pinecone.init === "function") {
-      // v0.x usa init()
-      await pinecone.init({
+    // 3) Instancia e inicializa
+    const client = new PineconeClient();
+    // v0.x tem init, v5.x também
+    if (typeof client.init === "function") {
+      await client.init({
         apiKey: process.env.PINECONE_API_KEY,
-        environment: process.env.PINECONE_ENVIRONMENT,
+        environment: process.env.PINECONE_ENVIRONMENT // ex: "us-east-1"
       });
     }
-    pineconeIndex = pinecone.Index("lumiere-logs");
+    pineconeIndex = client.Index("lumiere-logs");
     console.log("[PINECONE] Conexão com índice estabelecida.");
   } catch (err) {
     console.error("[PINECONE] Falha ao inicializar:", err.message);
   }
 })();
 
+// Gera embedding com OpenAI
 async function gerarEmbedding(texto) {
   try {
     const res = await openai.embeddings.create({
       model: "text-embedding-3-small",
-      input: texto,
+      input: texto
     });
     return res.data[0].embedding;
   } catch (err) {
@@ -62,33 +57,42 @@ async function gerarEmbedding(texto) {
   }
 }
 
+// Registra log no Pinecone
 async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
+  // aguarda a inicialização
   await initPromise;
+
   if (!pineconeIndex) {
     console.warn("[PINECONE] Índice não ficou pronto.");
     return;
   }
+
   const embedding = await gerarEmbedding(texto);
   if (!embedding) return;
 
   const vector = {
     id: uuidv4(),
     values: embedding,
-    metadata: { cliente, vendedor, evento, tipo, texto, decisaoIA, ...detalhes, timestamp: new Date().toISOString() },
+    metadata: {
+      cliente,
+      vendedor,
+      evento,
+      tipo,
+      texto,
+      decisaoIA,
+      ...detalhes,
+      timestamp: new Date().toISOString()
+    }
   };
 
   try {
-    // tanto v0.x (upsert([vectors])) quanto v5.x (upsert({ vectors }))
-    if (typeof pineconeIndex.upsert === "function") {
-      // detectar formato de assinatura
-      const arity = pineconeIndex.upsert.length;
-      if (arity === 1) {
-        // v5.x
-        await pineconeIndex.upsert({ vectors: [vector] });
-      } else {
-        // v0.x
-        await pineconeIndex.upsert([vector]);
-      }
+    // suporta tanto assinatura v0.x (upsert([vectors])) quanto v5.x (upsert({ vectors }))
+    if (pineconeIndex.upsert.length === 1) {
+      // v5.x
+      await pineconeIndex.upsert({ vectors: [vector] });
+    } else {
+      // v0.x
+      await pineconeIndex.upsert([vector]);
     }
     console.log(`[PINECONE] Registro inserido: ${evento} (${cliente})`);
   } catch (err) {
