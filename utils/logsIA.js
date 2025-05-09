@@ -1,31 +1,25 @@
 // utils/logsIA.js
 
+const { PineconeClient } = require("@pinecone-database/pinecone");
 const { OpenAI } = require("openai");
 const { v4: uuidv4 } = require("uuid");
 
+// OpenAI
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// PineconeClient v0.2.2
+const pinecone = new PineconeClient();
 let pineconeIndex = null;
 
-// Promise única de inicialização
-const initPromise = (async () => {
+// Inicializa Pinecone uma única vez
+(async () => {
   try {
-    // Import dinâmico do ESM da Pinecone v5+
-    const pineconePkg = await import("@pinecone-database/pinecone");
-    // Fallback entre named export e default export
-    const PineconeClass = pineconePkg.Pinecone ?? pineconePkg.default;
-    if (typeof PineconeClass !== "function") {
-      throw new Error("Classe Pinecone não encontrada no módulo");
-    }
-
-    // Instancia com chave e ambiente
-    const pinecone = new PineconeClass({
+    await pinecone.init({
       apiKey: process.env.PINECONE_API_KEY,
-      environment: process.env.PINECONE_ENVIRONMENT, // ex: "us-east-1"
+      environment: process.env.PINECONE_ENVIRONMENT // ex: "us-east-1"
     });
-
     pineconeIndex = pinecone.Index("lumiere-logs");
-    console.log("[PINECONE] Conexão com índice (v5.x) estabelecida.");
+    console.log("[PINECONE] Conexão com índice (v0.2.2) estabelecida.");
   } catch (err) {
     console.error("[PINECONE] Falha ao inicializar:", err.message);
   }
@@ -36,7 +30,7 @@ async function gerarEmbedding(texto) {
   try {
     const res = await openai.embeddings.create({
       model: "text-embedding-3-small",
-      input: texto,
+      input: texto
     });
     return res.data[0].embedding;
   } catch (err) {
@@ -45,16 +39,12 @@ async function gerarEmbedding(texto) {
   }
 }
 
-// Registra log semântico no Pinecone, aguardando initPromise
+// Registra log
 async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
-  // Garante que o índice foi inicializado
-  await initPromise;
-
   if (!pineconeIndex) {
-    console.warn("[PINECONE] Índice não ficou pronto.");
+    console.warn("[PINECONE] Índice não pronto ainda.");
     return;
   }
-
   const embedding = await gerarEmbedding(texto);
   if (!embedding) return;
 
@@ -69,14 +59,13 @@ async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, d
       texto,
       decisaoIA,
       ...detalhes,
-      timestamp: new Date().toISOString(),
-    },
+      timestamp: new Date().toISOString()
+    }
   };
 
   try {
-    // upsert espera objeto com key 'vectors' na v5.x
-    await pineconeIndex.upsert({ vectors: [vector] });
-    console.log(`[PINECONE] Registro inserido: ${evento} (${cliente})`);
+    await pineconeIndex.upsert([vector]);
+    console.log(`[PINECONE] Log inserido: ${evento} (${cliente})`);
   } catch (err) {
     console.error("[PINECONE] Falha ao upsert:", err.message);
   }
