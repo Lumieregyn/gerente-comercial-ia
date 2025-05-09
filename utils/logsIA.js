@@ -1,96 +1,53 @@
 // utils/logsIA.js
-// logo no início de utils/logsIA.js
-;(async()=>{
-  try {
-    const pineconeModule = await import("@pinecone-database/pinecone");
-    console.log("[DEBUG pineconeModule keys]", Object.keys(pineconeModule));
-    console.log("[DEBUG pineconeModule default?]", typeof pineconeModule.default);
-  } catch(err){
-    console.error("[DEBUG pinecone import ERR]", err);
-  }
-})();
 
+const axios = require("axios");
 const { v4: uuidv4 } = require("uuid");
 
-const {
-  PINECONE_API_KEY,
-  PINECONE_ENVIRONMENT,
-  PINECONE_INDEX_NAME,
-} = process.env;
+const PINECONE_API_KEY   = process.env.PINECONE_API_KEY;
+const PINECONE_INDEX_URL = process.env.PINECONE_INDEX_URL; 
+// ex: https://lumiere-logs-gqv3rnm.svc.aped-4627-b74a.pinecone.io
 
-let index = null;
-
-async function initPinecone() {
-  if (index) return;
-
-  let pineconeMod;
-  try {
-    // import dinâmico para ESM
-    pineconeMod = await import("@pinecone-database/pinecone");
-  } catch (err) {
-    console.error("[PINECONE] import falhou:", err);
-    return;
-  }
-
-  // pega o construtor de todas as formas possíveis
-  const PineconeClient =
-    pineconeMod.PineconeClient ||
-    pineconeMod.Pinecone ||
-    pineconeMod.default?.PineconeClient ||
-    pineconeMod.default;
-
-  if (typeof PineconeClient !== "function") {
-    console.error(
-      "[PINECONE] Falha ao inicializar: não encontrei um construtor Pinecone válido no módulo!"
-    );
-    return;
-  }
-
-  try {
-    const client = new PineconeClient();
-    await client.init({
-      apiKey: PINECONE_API_KEY,
-      environment: PINECONE_ENVIRONMENT,
-    });
-    index = client.Index(PINECONE_INDEX_NAME);
-    console.log(`[PINECONE] inicializado: ${PINECONE_INDEX_NAME}`);
-  } catch (err) {
-    console.error("[PINECONE] Falha ao inicializar:", err);
-  }
+if (!PINECONE_API_KEY || !PINECONE_INDEX_URL) {
+  console.warn("[PINECONE] Falta PINECONE_API_KEY ou PINECONE_INDEX_URL.");
 }
 
-async function registrarLogSemantico({
-  cliente,
-  vendedor,
-  evento,
-  tipo,
-  texto,
-  decisaoIA,
-  detalhes = {},
-}) {
-  await initPinecone();
-  if (!index) return;
-
-  const id = uuidv4();
-  const record = {
-    id,
-    text: `[${evento}] cliente=${cliente} vendedor=${vendedor} tipo=${tipo}\n${texto}\n→ decisão: ${decisaoIA}`,
+/**
+ * Registra um log semântico usando integrated embedding.
+ * Envia apenas `text`, o Pinecone gera o vetor de 1024 dims.
+ */
+async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
+  const vector = {
+    id: uuidv4(),
+    text: texto,   // campo 'text' para o embedder integrado
     metadata: {
       cliente,
       vendedor,
       evento,
       tipo,
+      texto,
       decisaoIA,
-      detalhes,
-      timestamp: new Date().toISOString(),
-    },
+      ...detalhes,
+      timestamp: new Date().toISOString()
+    }
   };
 
   try {
-    await index.upsert({ records: [record] });
-    console.log(`[PINECONE] log upserted id=${id}`);
+    const resp = await axios.post(
+      `${PINECONE_INDEX_URL}/vectors/upsert`,
+      { vectors: [vector] },
+      {
+        headers: {
+          "Api-Key": PINECONE_API_KEY,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+    console.log(`[PINECONE] Vetor upsert OK: ${vector.id}`);
   } catch (err) {
-    console.error("[PINECONE] Falha no upsert:", err);
+    console.error(
+      "[PINECONE] Falha no upsert via REST:",
+      err.response?.data || err.message
+    );
   }
 }
 
