@@ -1,56 +1,53 @@
-const { enviarMensagem } = require("./enviarMensagem");
-const MENSAGENS = require("../utils/mensagens");
+// servicos/checklistFechamento.js
+const axios = require("axios");
+const { OpenAI } = require("openai");
+const { buscarMemoria } = require("../utils/memoria");
 
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+/**
+ * Gatilho de Checklist Final de Fechamento
+ */
 async function checklistFechamento({ nomeCliente, nomeVendedor, numeroVendedor, contexto, texto }) {
-  const pendencias = [];
+  // 1) recuperar histórico semântico
+  const hist = await buscarMemoria(contexto, 3);
+  const histText = hist
+    .map((h, i) => `#${i+1} [${h.score.toFixed(2)}]: ${h.metadata.evento} → ${h.metadata.texto}`)
+    .join("\n");
 
-  const contextoCompleto = `${texto}\n${contexto}`.toLowerCase();
+  // 2) prompts refinados
+  const systemPrompt = `
+Você é um Gerente Comercial IA experiente. 
+Analise o contexto e retorne apenas uma lista numerada de pendências críticas para fechar o pedido.
+`.trim();
 
-  // 1. Verifica imagem do produto
-  if (!contextoCompleto.includes("imagem")) {
-    pendencias.push("❌ *Imagem do produto não localizada ou não enviada*");
+  const userPrompt = `
+Cliente: ${nomeCliente}
+Contexto:\n${contexto}
+
+Histórico relevante:\n${histText}
+
+Quais pendências críticas precisam ser ajustadas antes de gerar o pedido?
+`.trim();
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ],
+    max_tokens: 200
+  });
+
+  const pendencias = completion.choices[0].message.content.trim();
+  if (!pendencias.toLowerCase().includes("nenhuma pendência")) {
+    const mensagem = `✅ *Checklist Final de Fechamento - Análise IA*\n\n⚠️ Prezado(a) *${nomeVendedor}*, identificamos pendências:\n\n${pendencias}\n\n💡 Recomendamos validar com o cliente antes de concluir o pedido.`;
+
+    await axios.post(`${process.env.WPP_URL}/send-message`, {
+      number: numeroVendedor,
+      message: mensagem
+    });
   }
-
-  // 2. Cor do produto
-  const temCor = /(preto|branco|dourado|cobre|inox|bronze|bege)/.test(contextoCompleto);
-  if (!temCor) {
-    pendencias.push("❌ *Cor do produto não informada*");
-  }
-
-  // 3. Tipo/modelo (plafon, pendente, etc.)
-  const temTipo = /(plafon|pendente|arandela|embutido|trilho|trilho|spot|lustre)/.test(contextoCompleto);
-  if (!temTipo) {
-    pendencias.push("❌ *Modelo ou tipo da luminária não identificado*");
-  }
-
-  // 4. Tensão
-  if (!contextoCompleto.includes("110") && !contextoCompleto.includes("220")) {
-    pendencias.push("❌ *Tensão elétrica (110V ou 220V) não informada*");
-  }
-
-  // 5. Prazo de produção e entrega
-  const temPrazo1 = /(produção|dispon[ií]vel|pronto|estoque|fabricado|fabricar)/.test(contextoCompleto);
-  const temPrazo2 = /(entrega|envio|transporte|frete)/.test(contextoCompleto);
-  if (!temPrazo1 || !temPrazo2) {
-    pendencias.push("❌ *Prazos de produção ou entrega incompletos*");
-  }
-
-  // 6. Formalização de pedido especial
-  const produtoEspecial = contextoCompleto.includes("pedido") || contextoCompleto.includes("sob medida");
-  if (produtoEspecial && !contextoCompleto.includes("aprovado") && !contextoCompleto.includes("confirmado")) {
-    pendencias.push("❌ *Pedido especial não está claramente formalizado no atendimento*");
-  }
-
-  if (pendencias.length === 0) {
-    console.log("[CHECKLIST] Atendimento validado. Nenhuma pendência encontrada.");
-    return;
-  }
-
-  const corpo = pendencias.map(p => `* ${p}`).join("\n");
-  const mensagem = MENSAGENS.alertaChecklist(nomeVendedor, nomeCliente, corpo);
-  await enviarMensagem(numeroVendedor, mensagem);
-
-  console.log(`[CHECKLIST] Pendências encontradas e alerta enviado para ${nomeVendedor}`);
 }
 
 module.exports = { checklistFechamento };
