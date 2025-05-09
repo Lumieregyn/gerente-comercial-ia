@@ -1,6 +1,15 @@
 // utils/logger.js
+const { registrarLogSemantico } = require('./logsIA');
 
-const { registrarLogSemantico } = require("./logsIA");
+/**
+ * Função genérica de log para IA, delega ao Pinecone
+ */
+function logIA(context) {
+  // dispara sem await pra não bloquear o fluxo
+  registrarLogSemantico(context).catch(console.error);
+}
+
+module.exports = { logIA };
 
 /**
  * Log semântico para eventos relacionados à IA Gerente Comercial.
