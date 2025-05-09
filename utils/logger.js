@@ -1,12 +1,16 @@
 // utils/logger.js
+
 const { registrarLogSemantico } = require("./logsIA");
 
+/**
+ * Dispara o log semântico em background para não bloquear o fluxo principal.
+ */
 function logIA(context) {
-  // dispara em background
   registrarLogSemantico(context).catch(console.error);
 }
 
 module.exports = { logIA };
+
 
 /**
  * Log semântico para eventos relacionados à IA Gerente Comercial.
