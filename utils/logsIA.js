@@ -1,7 +1,20 @@
 // utils/logsIA.js
 
 const { v4: uuidv4 } = require("uuid");
-const { PineconeClient } = require("@pinecone-database/pinecone");
+const pineconeModule = require("@pinecone-database/pinecone");
+
+// fallback para encontrar a classe correta
+const PineconeConstructor =
+  pineconeModule.PineconeClient ||
+  pineconeModule.Pinecone ||
+  pineconeModule.default ||
+  null;
+
+if (!PineconeConstructor) {
+  console.error(
+    "[PINECONE] Falha ao inicializar: não encontrei PineconeClient, Pinecone ou default no módulo!"
+  );
+}
 
 const {
   PINECONE_API_KEY,
@@ -11,23 +24,32 @@ const {
 
 let index = null;
 
-/**
- * Inicializa o PineconeClient e aponta para o índice.
- */
 async function initPinecone() {
-  if (index) return;
-  const client = new PineconeClient();
-  await client.init({
-    apiKey: PINECONE_API_KEY,
-    environment: PINECONE_ENVIRONMENT,
-  });
-  index = client.Index(PINECONE_INDEX_NAME);
-  console.log(`[PINECONE] inicializado: ${PINECONE_INDEX_NAME}`);
+  if (index || !PineconeConstructor) return;
+  try {
+    // v5.x usa init({ apiKey, environment })
+    const client = new PineconeConstructor();
+    if (typeof client.init === "function") {
+      await client.init({
+        apiKey: PINECONE_API_KEY,
+        environment: PINECONE_ENVIRONMENT,
+      });
+    } else if (client.ApiKey) {
+      // fallback antigo
+      client.ApiKey = PINECONE_API_KEY;
+      client.Environment = PINECONE_ENVIRONMENT;
+    }
+    index = client.Index
+      ? client.Index(PINECONE_INDEX_NAME)
+      : client.Indexes?.get(PINECONE_INDEX_NAME);
+    console.log(`[PINECONE] inicializado: ${PINECONE_INDEX_NAME}`);
+  } catch (err) {
+    console.error("[PINECONE] Falha ao inicializar:", err);
+  }
 }
 
 /**
- * Registra um log semântico no Pinecone (via Integrated Embedding).
- * @param {{cliente:string,vendedor:string,evento:string,tipo:string,texto:string,decisaoIA:string,detalhes?:object}} opts
+ * Registra um log semântico no Pinecone (via integrated embedding).
  */
 async function registrarLogSemantico({
   cliente,
@@ -38,29 +60,26 @@ async function registrarLogSemantico({
   decisaoIA,
   detalhes = {},
 }) {
+  await initPinecone();
+  if (!index) return;
+
+  const id = uuidv4();
+  const record = {
+    id,
+    text: `[${evento}] cliente=${cliente} vendedor=${vendedor} tipo=${tipo}\n${texto}\n→ decisão: ${decisaoIA}`,
+    metadata: {
+      cliente,
+      vendedor,
+      evento,
+      tipo,
+      decisaoIA,
+      detalhes,
+      timestamp: new Date().toISOString(),
+    },
+  };
+
   try {
-    await initPinecone();
-
-    const id = uuidv4();
-    const record = {
-      id,
-      text: `[${evento}] cliente=${cliente} vendedor=${vendedor} tipo=${tipo}\n${texto}\n→ decisão: ${decisaoIA}`,
-      metadata: {
-        cliente,
-        vendedor,
-        evento,
-        tipo,
-        decisaoIA,
-        detalhes,
-        timestamp: new Date().toISOString(),
-      },
-    };
-
-    // Usando integrated embedding: basta passar `records`
-    await index.upsert({
-      records: [record],
-    });
-
+    await index.upsert({ records: [record] });
     console.log(`[PINECONE] log upserted id=${id}`);
   } catch (err) {
     console.error("[PINECONE] Falha no upsert:", err);
