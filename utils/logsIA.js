@@ -1,7 +1,7 @@
 // utils/logsIA.js
 
-import { v4 as uuidv4 } from "uuid";
-import { PineconeClient } from "@pinecone-database/pinecone";
+const { v4: uuidv4 } = require("uuid");
+const { PineconeClient } = require("@pinecone-database/pinecone");
 
 const {
   PINECONE_API_KEY,
@@ -10,25 +10,28 @@ const {
 } = process.env;
 
 const pinecone = new PineconeClient();
+let indexInstance = null;
 
-let index;
+// inicializa o client Pinecone e seleciona o index
 async function initPinecone() {
-  if (index) return;
-  await pinecone.init({
-    apiKey: PINECONE_API_KEY,
-    environment: PINECONE_ENVIRONMENT,
-  });
-  index = pinecone.Index(PINECONE_INDEX_NAME);
+  if (!indexInstance) {
+    await pinecone.init({
+      apiKey: PINECONE_API_KEY,
+      environment: PINECONE_ENVIRONMENT,
+    });
+    indexInstance = pinecone.Index(PINECONE_INDEX_NAME);
+    console.log("[PINECONE] Cliente inicializado, index:", PINECONE_INDEX_NAME);
+  }
 }
 
-export async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes }) {
+async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes }) {
   try {
     await initPinecone();
 
     const id = uuidv4();
     const record = {
       id,
-      // o campo "text" será automaticamente embarcado em um vetor de dimensão 1024
+      // "text" será convertido automaticamente em vetor de 1024 dims
       text: `[${evento}] cliente=${cliente} vendedor=${vendedor} tipo=${tipo}\n${texto}\n→ decisão: ${decisaoIA}`,
       metadata: {
         cliente,
@@ -36,12 +39,12 @@ export async function registrarLogSemantico({ cliente, vendedor, evento, tipo, t
         evento,
         tipo,
         decisaoIA,
-        detalhes,
+        detalhes: detalhes || {},
         timestamp: new Date().toISOString(),
       },
     };
 
-    await index.upsert({
+    await indexInstance.upsert({
       records: [record],
     });
 
@@ -50,3 +53,7 @@ export async function registrarLogSemantico({ cliente, vendedor, evento, tipo, t
     console.error("[PINECONE] Falha no upsert:", err);
   }
 }
+
+module.exports = {
+  registrarLogSemantico,
+};
