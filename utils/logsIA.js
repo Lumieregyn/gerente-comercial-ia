@@ -1,15 +1,14 @@
 // utils/logsIA.js
-const axios    = require("axios");
+const axios = require("axios");
 const { v4: uuidv4 } = require("uuid");
 
 const PINECONE_API_KEY   = process.env.PINECONE_API_KEY;
-const PINECONE_INDEX_URL = process.env.PINECONE_INDEX_URL; 
-// e.g. https://lumiere-logs-gqv3rnm.svc.aped-4627-b74a.pinecone.io
+const PINECONE_INDEX_URL = process.env.PINECONE_INDEX_URL;
 
 async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
   const vector = {
     id: uuidv4(),
-    text: texto,       // **IMPORTANTE**: use exatamente "text", nada de "content" ou outro nome
+    text: texto,             // <-- campo text para o embedder integrado
     metadata: {
       cliente,
       vendedor,
@@ -23,7 +22,7 @@ async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, d
   };
 
   try {
-    await axios.post(
+    const resp = await axios.post(
       `${PINECONE_INDEX_URL}/vectors/upsert`,
       { vectors: [vector] },
       {
@@ -34,6 +33,7 @@ async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, d
       }
     );
     console.log(`[PINECONE] Vetor upsert OK: ${vector.id}`);
+    return resp.data;
   } catch (err) {
     console.error("[PINECONE] Falha no upsert via REST:", err.response?.data || err.message);
   }
