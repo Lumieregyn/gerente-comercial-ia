@@ -1,47 +1,53 @@
+// servicos/compararImagemProduto.js
 const axios = require("axios");
-const { enviarMensagem } = require("./enviarMensagem");
-const MENSAGENS = require("../utils/mensagens");
+const { OpenAI } = require("openai");
+const { buscarMemoria } = require("../utils/memoria");
 
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+/**
+ * Gatilho de Alerta de Divergência de Imagem
+ */
 async function compararImagemProduto({ nomeCliente, nomeVendedor, numeroVendedor, imagemBase64, contexto }) {
-  try {
-    const { OpenAI } = require("openai");
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const systemPrompt = `
+Você é um especialista em produtos de iluminação. Compare a imagem enviada pelo cliente com o que foi orçado.
+Retorne 'Alerta' se houver divergência significativa ou 'OK' se estiver coerente.
+`.trim();
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: "Você é um revisor técnico. Analise se a imagem do cliente corresponde ao produto orçado no seguinte contexto. Se houver divergência visual, aponte."
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: `Contexto do orçamento:\n${contexto}\n\nA imagem abaixo foi enviada pelo cliente:` },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/png;base64,${imagemBase64}`
-              }
-            }
-          ]
+  const hist = await buscarMemoria(contexto, 3);
+  const histText = hist.map((h,i)=>`#${i+1}[${h.score.toFixed(2)}]: ${h.metadata.evento}`).join("\n");
+
+  const userPrompt = `
+Cliente: ${nomeCliente}
+Contexto:\n${contexto}
+
+Histórico relevante:\n${histText}
+
+Analise esta imagem base64 e informe divergências (tipo, cor, modelo).
+`.trim();
+
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+      {
+        role: "user",
+        content: {
+          type: "image_url",
+          image_url: { url: `data:image/png;base64,${imagemBase64}` }
         }
-      ],
-      max_tokens: 500
+      }
+    ]
+  });
+
+  const resultado = resp.choices[0].message.content.trim();
+  if (/alerta/i.test(resultado)) {
+    const msg = `📸 *Alerta de Divergência de Imagem*\n\n⚠️ Prezado(a) *${nomeVendedor}*, possível divergência detectada:\n${resultado}\n\n💡 Valide antes de gerar o pedido.`;
+    await axios.post(`${process.env.WPP_URL}/send-message`, {
+      number: numeroVendedor,
+      message: msg
     });
-
-    const resposta = completion.choices[0].message.content.toLowerCase();
-
-    const houveDivergencia = resposta.includes("divergência") || resposta.includes("não corresponde") || resposta.includes("diferença");
-
-    if (houveDivergencia) {
-      await enviarMensagem(numeroVendedor, MENSAGENS.alertaImagem(nomeVendedor, nomeCliente));
-      console.log(`[DIVERGÊNCIA] Alerta de imagem enviado para ${nomeVendedor}.`);
-    } else {
-      console.log("[DIVERGÊNCIA] Imagem validada. Sem divergência.");
-    }
-  } catch (err) {
-    console.error("[ERRO DIVERGÊNCIA]", err.message);
   }
 }
 
