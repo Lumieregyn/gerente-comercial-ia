@@ -1,42 +1,52 @@
 // utils/logsIA.js
-const axios = require("axios");
-const { v4: uuidv4 } = require("uuid");
 
-const PINECONE_API_KEY   = process.env.PINECONE_API_KEY;
-const PINECONE_INDEX_URL = process.env.PINECONE_INDEX_URL;
+import { v4 as uuidv4 } from "uuid";
+import { PineconeClient } from "@pinecone-database/pinecone";
 
-async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
-  const vector = {
-    id: uuidv4(),
-    text: texto,             // <-- campo text para o embedder integrado
-    metadata: {
-      cliente,
-      vendedor,
-      evento,
-      tipo,
-      texto,
-      decisaoIA,
-      ...detalhes,
-      timestamp: new Date().toISOString()
-    }
-  };
+const {
+  PINECONE_API_KEY,
+  PINECONE_ENVIRONMENT,
+  PINECONE_INDEX_NAME,
+} = process.env;
 
-  try {
-    const resp = await axios.post(
-      `${PINECONE_INDEX_URL}/vectors/upsert`,
-      { vectors: [vector] },
-      {
-        headers: {
-          "Api-Key": PINECONE_API_KEY,
-          "Content-Type": "application/json"
-        }
-      }
-    );
-    console.log(`[PINECONE] Vetor upsert OK: ${vector.id}`);
-    return resp.data;
-  } catch (err) {
-    console.error("[PINECONE] Falha no upsert via REST:", err.response?.data || err.message);
-  }
+const pinecone = new PineconeClient();
+
+let index;
+async function initPinecone() {
+  if (index) return;
+  await pinecone.init({
+    apiKey: PINECONE_API_KEY,
+    environment: PINECONE_ENVIRONMENT,
+  });
+  index = pinecone.Index(PINECONE_INDEX_NAME);
 }
 
-module.exports = { registrarLogSemantico };
+export async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes }) {
+  try {
+    await initPinecone();
+
+    const id = uuidv4();
+    const record = {
+      id,
+      // o campo "text" será automaticamente embarcado em um vetor de dimensão 1024
+      text: `[${evento}] cliente=${cliente} vendedor=${vendedor} tipo=${tipo}\n${texto}\n→ decisão: ${decisaoIA}`,
+      metadata: {
+        cliente,
+        vendedor,
+        evento,
+        tipo,
+        decisaoIA,
+        detalhes,
+        timestamp: new Date().toISOString(),
+      },
+    };
+
+    await index.upsert({
+      records: [record],
+    });
+
+    console.log(`[PINECONE] log upserted id=${id}`);
+  } catch (err) {
+    console.error("[PINECONE] Falha no upsert:", err);
+  }
+}
