@@ -1,53 +1,72 @@
 // utils/logsIA.js
+const { PineconeClient } = require('@pinecone-database/pinecone');
+const { OpenAI }       = require('openai');
+const { v4: uuidv4 }   = require('uuid');
 
-const axios = require("axios");
-const { v4: uuidv4 } = require("uuid");
+const pinecone = new PineconeClient();
+let _initialized = false;
 
-const PINECONE_API_KEY   = process.env.PINECONE_API_KEY;
-const PINECONE_INDEX_URL = process.env.PINECONE_INDEX_URL; 
-// ex: https://lumiere-logs-gqv3rnm.svc.aped-4627-b74a.pinecone.io
-
-if (!PINECONE_API_KEY || !PINECONE_INDEX_URL) {
-  console.warn("[PINECONE] Falta PINECONE_API_KEY ou PINECONE_INDEX_URL.");
+async function initPinecone() {
+  if (_initialized) return;
+  await pinecone.init({
+    apiKey:    process.env.PINECONE_API_KEY,
+    environment: process.env.PINECONE_ENVIRONMENT
+  });
+  _initialized = true;
 }
 
-/**
- * Registra um log semântico usando integrated embedding.
- * Envia apenas `text`, o Pinecone gera o vetor de 1024 dims.
- */
-async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes = {} }) {
-  const vector = {
-    id: uuidv4(),
-    text: texto,   // campo 'text' para o embedder integrado
-    metadata: {
-      cliente,
-      vendedor,
-      evento,
-      tipo,
-      texto,
-      decisaoIA,
-      ...detalhes,
-      timestamp: new Date().toISOString()
-    }
-  };
+const index = () => pinecone.Index(process.env.PINECONE_INDEX_NAME);
 
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
+/**
+ * Registra um log semântico no Pinecone.
+ * @param {Object} params
+ * @param {string} params.cliente
+ * @param {string} params.vendedor
+ * @param {string} params.evento
+ * @param {'analise'|'espera'|'alerta'} params.tipo
+ * @param {string} params.texto
+ * @param {string} params.decisaoIA
+ * @param {Object} [params.detalhes]
+ */
+async function registrarLogSemantico({ cliente, vendedor, evento, tipo, texto, decisaoIA, detalhes }) {
   try {
-    const resp = await axios.post(
-      `${PINECONE_INDEX_URL}/vectors/upsert`,
-      { vectors: [vector] },
-      {
-        headers: {
-          "Api-Key": PINECONE_API_KEY,
-          "Content-Type": "application/json"
-        }
+    await initPinecone();
+
+    // 1) gerar embedding do texto
+    const embs = await openai.embeddings.create({
+      model: 'text-embed-ada-002',
+      input: texto
+    });
+    const vector = embs.data[0].embedding; // array de 1536 floats
+
+    // 2) montar registro e upsert
+    const id = uuidv4();
+    await index().upsert({
+      upsertRequest: {
+        vectors: [{
+          id,
+          values: vector,
+          metadata: {
+            cliente,
+            vendedor,
+            evento,
+            tipo,
+            texto,
+            decisaoIA,
+            detalhes: detalhes || {},
+            timestamp: new Date().toISOString()
+          }
+        }]
       }
-    );
-    console.log(`[PINECONE] Vetor upsert OK: ${vector.id}`);
+    });
+
+    console.log(`[PINECONE] Log upserted ${id}`);
   } catch (err) {
-    console.error(
-      "[PINECONE] Falha no upsert via REST:",
-      err.response?.data || err.message
-    );
+    console.error('[PINECONE] Falha no upsert:', err);
   }
 }
 
