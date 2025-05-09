@@ -3,12 +3,16 @@
 const { v4: uuidv4 } = require("uuid");
 const pineconeModule = require("@pinecone-database/pinecone");
 
-// fallback para encontrar a classe correta
+// fallback para descobrir onde está a classe
 const PineconeConstructor =
+  // nome oficial na v5.x
   pineconeModule.PineconeClient ||
+  // alias possível
   pineconeModule.Pinecone ||
+  // se exportou como default
   pineconeModule.default ||
-  null;
+  // se o require retornou a função diretamente
+  (typeof pineconeModule === "function" ? pineconeModule : null);
 
 if (!PineconeConstructor) {
   console.error(
@@ -27,30 +31,20 @@ let index = null;
 async function initPinecone() {
   if (index || !PineconeConstructor) return;
   try {
-    // v5.x usa init({ apiKey, environment })
+    // instanciação conforme v5.x
     const client = new PineconeConstructor();
-    if (typeof client.init === "function") {
-      await client.init({
-        apiKey: PINECONE_API_KEY,
-        environment: PINECONE_ENVIRONMENT,
-      });
-    } else if (client.ApiKey) {
-      // fallback antigo
-      client.ApiKey = PINECONE_API_KEY;
-      client.Environment = PINECONE_ENVIRONMENT;
-    }
-    index = client.Index
-      ? client.Index(PINECONE_INDEX_NAME)
-      : client.Indexes?.get(PINECONE_INDEX_NAME);
+    await client.init({
+      apiKey: PINECONE_API_KEY,
+      environment: PINECONE_ENVIRONMENT,
+    });
+    // aponta para o índice
+    index = client.Index(PINECONE_INDEX_NAME);
     console.log(`[PINECONE] inicializado: ${PINECONE_INDEX_NAME}`);
   } catch (err) {
     console.error("[PINECONE] Falha ao inicializar:", err);
   }
 }
 
-/**
- * Registra um log semântico no Pinecone (via integrated embedding).
- */
 async function registrarLogSemantico({
   cliente,
   vendedor,
@@ -67,15 +61,7 @@ async function registrarLogSemantico({
   const record = {
     id,
     text: `[${evento}] cliente=${cliente} vendedor=${vendedor} tipo=${tipo}\n${texto}\n→ decisão: ${decisaoIA}`,
-    metadata: {
-      cliente,
-      vendedor,
-      evento,
-      tipo,
-      decisaoIA,
-      detalhes,
-      timestamp: new Date().toISOString(),
-    },
+    metadata: { cliente, vendedor, evento, tipo, decisaoIA, detalhes, timestamp: new Date().toISOString() },
   };
 
   try {
@@ -86,6 +72,4 @@ async function registrarLogSemantico({
   }
 }
 
-module.exports = {
-  registrarLogSemantico,
-};
+module.exports = { registrarLogSemantico };
