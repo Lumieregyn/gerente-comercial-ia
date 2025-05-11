@@ -19,11 +19,10 @@ const VENDEDORES = require("./vendedores.json");
 const app = express();
 app.use(bodyParser.json());
 
-// ✅ Lista de gestores (números e grupos)
 function isGestor(numero) {
   const numerosGestores = [
-    "+554731703288",                     // Exemplo de número gestor
-    "120363416457397022@g.us"           // ID do grupo Gerente Comercial IA
+    "+554731703288",                     // Número real
+    "+120363416457397022"               // Grupo com "+" incluso
   ];
   return numerosGestores.includes(numero);
 }
@@ -38,7 +37,7 @@ app.use("/conversa", async (req, res, next) => {
     const message = payload?.message || payload?.Message;
     const texto = message?.text || message?.caption || "[attachment]";
     const raw = user?.Phone || "";
-    const numero = raw.includes("@g.us") ? raw : "+" + raw;
+    const numero = "+" + raw; // Aplica "+" tanto para números quanto IDs de grupo
 
     console.log("[DEBUG] Número recebido:", numero);
     console.log("[DEBUG] Texto recebido:", texto);
@@ -57,12 +56,12 @@ app.use("/conversa", async (req, res, next) => {
   }
 });
 
-// ✅ Fallback /conversa
+// ✅ Fallback básico
 app.post("/conversa", (req, res) => {
   return res.status(200).json({ status: "OK - fallback ativo" });
 });
 
-// 🚀 Fluxo comercial principal
+// 🚀 Fluxo comercial
 app.post("/conversa/proccess", async (req, res) => {
   try {
     const payload = req.body.payload;
