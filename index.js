@@ -150,10 +150,10 @@ app.post("/conversa", async (req, res) => {
     const keyVend         = normalizeNome(nomeVendedorRaw);
     const numeroVendedor  = VENDEDORES[keyVend];
 
-    if (!numeroVendedor) {
-      console.warn(`[ERRO] Vendedor não mapeado: ${nomeVendedorRaw}`);
-      return res.json({ warning: "Vendedor não mapeado." });
-    }
+    if (!numeroVendedor && nomeVendedorRaw !== "Grupo Gestores" && nomeVendedorRaw !== "Bot") {
+  console.warn(`[ERRO] Vendedor não mapeado: ${nomeVendedorRaw}`);
+  return res.json({ warning: "Vendedor não mapeado." });
+}
 
     // 5) fluxo de intenção
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
