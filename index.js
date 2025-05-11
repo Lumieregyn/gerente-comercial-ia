@@ -19,15 +19,16 @@ const VENDEDORES = require("./vendedores.json");
 const app = express();
 app.use(bodyParser.json());
 
+// ✅ Lista de gestores (números e grupos)
 function isGestor(numero) {
   const numerosGestores = [
-    "+554731703288",
-    "+5547999999999"
+    "+554731703288",                     // Exemplo de número gestor
+    "120363416457397022@g.us"           // ID do grupo Gerente Comercial IA
   ];
   return numerosGestores.includes(numero);
 }
 
-// ✅ Middleware para tratar perguntas de gestor
+// ✅ Middleware para interceptar perguntas de gestores
 app.use("/conversa", async (req, res, next) => {
   console.log("[DEBUG] Middleware /conversa entrou");
 
@@ -36,7 +37,12 @@ app.use("/conversa", async (req, res, next) => {
     const user = payload?.user;
     const message = payload?.message || payload?.Message;
     const texto = message?.text || message?.caption || "[attachment]";
-    const numero = "+" + (user?.Phone || "");
+    const raw = user?.Phone || "";
+    const numero = raw.includes("@g.us") ? raw : "+" + raw;
+
+    console.log("[DEBUG] Número recebido:", numero);
+    console.log("[DEBUG] Texto recebido:", texto);
+    console.log("[DEBUG] isGestor(numero)?", isGestor(numero));
 
     if (isGestor(numero) && texto.includes("?")) {
       console.log("[IA GESTOR] Pergunta detectada:", texto);
@@ -44,14 +50,14 @@ app.use("/conversa", async (req, res, next) => {
       return res.json({ status: "Pergunta do gestor respondida via IA" });
     }
 
-    next(); // continua para fluxo comercial
+    next();
   } catch (err) {
     console.error("[ERRO /conversa middleware]", err.message);
     res.status(500).json({ error: "Erro no roteamento de conversa" });
   }
 });
 
-// ✅ Fallback explícito (evita 404)
+// ✅ Fallback /conversa
 app.post("/conversa", (req, res) => {
   return res.status(200).json({ status: "OK - fallback ativo" });
 });
