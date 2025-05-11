@@ -191,7 +191,12 @@ app.post("/conversa/proccess", async (req, res) => {
     console.error("[ERRO]", err);
     return res.status(500).json({ error: "Erro interno." });
   }
+  // 🔄 Proxy para mensagens não respondidas no middleware
+app.post("/conversa", async (req, res, next) => {
+  // Redireciona para o fluxo comercial principal
+  req.url = "/conversa/proccess";
+  app._router.handle(req, res, next);
 });
-
+  
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
