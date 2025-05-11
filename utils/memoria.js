@@ -24,23 +24,27 @@ async function gerarEmbedding(text) {
 }
 
 /**
- * Busca os N registros mais similares ao texto de consulta.
+ * Busca os N registros mais similares ao texto de consulta, filtrando por cliente.
  * @param {string} text
+ * @param {string} cliente
  * @param {number} topK
  * @returns {Promise<Array<{score:number, metadata:object}>>}
  */
-async function buscarMemoria(text, topK = 5) {
-  // 1) gera embedding da query
+async function buscarMemoria(text, cliente, topK = 5) {
   const vector = await gerarEmbedding(text);
 
-  // 2) faz query no Pinecone
+  const body = {
+    topK,
+    includeMetadata: true,
+    vector,
+    filter: {
+      cliente
+    }
+  };
+
   const resp = await axios.post(
     `${PINECONE_INDEX_URL}/query`,
-    {
-      topK,
-      includeMetadata: true,
-      vector
-    },
+    body,
     { headers: { "Api-Key": PINECONE_API_KEY } }
   );
 
