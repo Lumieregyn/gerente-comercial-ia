@@ -44,7 +44,7 @@ async function registrarLogSemantico({
 
   // 2) Monta o vetor para upsert
   const vector = {
-    id: uuidv4(),
+    id: `cliente_${cliente}_log_${uuidv4()}`, // Agrupamento por cliente
     values,
     metadata: {
       cliente,
