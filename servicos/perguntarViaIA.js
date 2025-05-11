@@ -1,59 +1,74 @@
+// servicos/perguntarViaIA.js
+
+const axios = require("axios");
 const { OpenAI } = require("openai");
 const { buscarMemoria } = require("../utils/memoria");
-const axios = require("axios");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
- * Analisa a pergunta enviada via WhatsApp e responde com base nos logs.
+ * Processa perguntas de gestores via WhatsApp, buscando contexto nos logs.
+ * @param {{textoPergunta: string, numeroGestor: string}} param0 
  */
 async function perguntarViaIA({ textoPergunta, numeroGestor }) {
-  // Extrai intenção e palavras-chave usando GPT-4o
-  const promptIntencao = `
-Você é um assistente de IA treinado para interpretar perguntas de gestores comerciais sobre clientes e vendedores.
-Com base na pergunta abaixo, diga qual é a intenção da consulta (ex: atendimento_cliente, status_vendedor, checklist_pendente) e identifique o nome da pessoa mencionada.
+  try {
+    // 1. Interpretar a intenção e nome mencionados
+    const interpretacaoPrompt = `
+Você é um assistente de IA que ajuda a entender perguntas de gestores sobre clientes ou vendedores.
+Com base na pergunta abaixo, identifique:
 
-Pergunta: "${textoPergunta}"
+INTENCAO: atendimento_cliente, status_vendedor, checklist_pendente, fechamento, pendencias, resumo, outro
+NOME: nome mencionado na pergunta
+
+Pergunta:
+"${textoPergunta}"
 
 Responda no formato:
 INTENCAO: ...
 NOME: ...
 `.trim();
 
-  const interpretacao = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [{ role: "user", content: promptIntencao }],
-    max_tokens: 100
-  });
+    const interpretacao = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: interpretacaoPrompt }],
+      max_tokens: 100
+    });
 
-  const respostaIA = interpretacao.choices[0].message.content;
-  const match = respostaIA.match(/INTENCAO:\s*(.+)\nNOME:\s*(.+)/i);
+    const resposta = interpretacao.choices[0].message.content;
+    const match = resposta.match(/INTENCAO:\s*(.+)\nNOME:\s*(.+)/i);
 
-  if (!match) {
-    await enviarRespostaWhatsApp(numeroGestor, "❌ Não consegui entender a pergunta. Pode reformular?");
-    return;
-  }
+    if (!match) {
+      await enviarRespostaWhatsApp(numeroGestor, "❌ Não consegui entender a pergunta. Pode reformular?");
+      return;
+    }
 
-  const [, intencao, nome] = match;
+    const [, intencao, nomeMencionado] = match;
 
-  // Buscar memória baseada na intenção
-  const memoria = await buscarMemoria(nome, nome, 5); // busca por nome no embedding e no campo cliente/vendedor
+    // 2. Buscar contexto relevante no Pinecone
+    const memorias = await buscarMemoria(nomeMencionado, nomeMencionado, 5);
 
-  const respostaContexto = memoria.length
-    ? memoria.map((m, i) => `#${i + 1}: ${m.metadata.evento} → ${m.metadata.texto}`).join("\n")
-    : "🧠 Nenhum dado relevante encontrado.";
+    const respostaContexto = memorias.length
+      ? memorias.map((m, i) => `#${i + 1}: ${m.metadata.evento} → ${m.metadata.texto}`).join("\n")
+      : "🧠 Nenhum dado relevante encontrado.";
 
-  const respostaFinal = `
-📋 *Resposta para sua pergunta sobre "${nome}"*
+    // 3. Montar resposta para gestor
+    const mensagemFinal = `
+📋 *Resposta da IA - Análise Comercial*
 
-🔎 Intenção detectada: ${intencao}
-📂 Contexto encontrado:
+🔍 Intenção detectada: ${intencao}
+👤 Pessoa analisada: ${nomeMencionado}
+
+📚 Histórico encontrado:
 ${respostaContexto}
 
-🤖 IA LumièreGyn em ação.
+🤖 IA Comercial LumièreGyn.
 `.trim();
 
-  await enviarRespostaWhatsApp(numeroGestor, respostaFinal);
+    await enviarRespostaWhatsApp(numeroGestor, mensagemFinal);
+  } catch (err) {
+    console.error("[ERRO perguntarViaIA]", err.message);
+    await enviarRespostaWhatsApp(numeroGestor, "⚠️ Ocorreu um erro ao processar sua pergunta. Tente novamente.");
+  }
 }
 
 async function enviarRespostaWhatsApp(numero, mensagem) {
