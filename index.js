@@ -13,14 +13,11 @@ const { checklistFechamento }     = require("./servicos/checklistFechamento");
 const { verificarPedidoEspecial } = require("./servicos/verificarPedidoEspecial");
 const { mensagemEhRuido }         = require("./utils/controleDeRuido");
 const { logIA }                   = require("./utils/logger");
+const { perguntarViaIA }          = require("./servicos/perguntarViaIA");
 const VENDEDORES                  = require("./vendedores.json");
-
-// Nova rota para perguntas de gestores via IA
-const rotaConversa                = require("./rotas/conversa");
 
 const app = express();
 app.use(bodyParser.json());
-app.use("/conversa", rotaConversa); // Middleware de filtragem de perguntas de gestor
 
 function normalizeNome(nome = "") {
   return nome
@@ -30,8 +27,15 @@ function normalizeNome(nome = "") {
     .toLowerCase();
 }
 
-// Fluxo comercial tradicional
-app.post("/conversa/proccess", async (req, res) => {
+function isGestor(numero) {
+  const numerosGestores = [
+    "+554731703288", // exemplo
+    "+5547999999999"
+  ];
+  return numerosGestores.includes(numero);
+}
+
+app.post("/conversa", async (req, res) => {
   try {
     const payload = req.body.payload;
     if (
@@ -50,6 +54,14 @@ app.post("/conversa/proccess", async (req, res) => {
 
     const nomeCliente = user.Name || "Cliente";
     const texto       = message.text || message.caption || "[attachment]";
+    const numeroUser  = "+" + (user.Phone || "");
+
+    // 🎯 Intercepta pergunta de gestor
+    if (isGestor(numeroUser) && texto.includes("?")) {
+      await perguntarViaIA({ textoPergunta: texto, numeroGestor: numeroUser });
+      return res.json({ status: "Pergunta do gestor respondida via IA" });
+    }
+
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     // 1) grava o log de entrada
@@ -68,7 +80,7 @@ app.post("/conversa/proccess", async (req, res) => {
       return res.json({ status: "Ignorado por ruído." });
     }
 
-    // 3) processa anexos (áudio, PDF, imagem)
+    // 3) processa anexos
     let contextoExtra = "";
     let imagemBase64  = null;
 
@@ -77,7 +89,6 @@ app.post("/conversa/proccess", async (req, res) => {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
           if (t && t.length > 0) {
-            console.log("[AUDIO] Texto transcrito adicionado ao contexto.");
             contextoExtra += "\n" + t;
             await logIA({
               cliente: nomeCliente,
@@ -87,8 +98,6 @@ app.post("/conversa/proccess", async (req, res) => {
               texto: t,
               decisaoIA: "Transcrição via Whisper concluída"
             });
-          } else {
-            console.log("[AUDIO] Sem texto para adicionar ao contexto.");
           }
         }
 
@@ -136,7 +145,7 @@ app.post("/conversa/proccess", async (req, res) => {
       }
     }
 
-    // 4) identifica o número do vendedor
+    // 4) identifica vendedor
     const nomeVendedorRaw = attendant.Name || "";
     const keyVend         = normalizeNome(nomeVendedorRaw);
     const numeroVendedor  = VENDEDORES[keyVend];
@@ -146,7 +155,7 @@ app.post("/conversa/proccess", async (req, res) => {
       return res.json({ warning: "Vendedor não mapeado." });
     }
 
-    // 5) lógica de intenção / orçamentos
+    // 5) fluxo de intenção
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
     const sinalizouFechamento = await detectarIntencao(
       nomeCliente,
