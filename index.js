@@ -21,14 +21,14 @@ app.use(bodyParser.json());
 
 function isGestor(numero) {
   const numerosGestores = [
-    "+554731703288", // seus números de gestores
+    "+554731703288", // exemplo
     "+5547999999999"
   ];
   return numerosGestores.includes(numero);
 }
 
-// ✅ ROTA UNIFICADA /conversa: pergunta de gestor OU redirecionamento
-app.post("/conversa", async (req, res, next) => {
+// ✅ Middleware de interceptação de perguntas de gestor
+app.use("/conversa", async (req, res, next) => {
   try {
     const payload = req.body.payload;
     const user = payload?.user;
@@ -37,17 +37,15 @@ app.post("/conversa", async (req, res, next) => {
     const numero = "+" + (user?.Phone || "");
 
     if (isGestor(numero) && texto.includes("?")) {
-      console.log("[IA GESTOR] Pergunta recebida fora do horário útil:", texto);
+      console.log("[IA GESTOR] Pergunta detectada:", texto);
       await perguntarViaIA({ textoPergunta: texto, numeroGestor: numero });
       return res.json({ status: "Pergunta do gestor respondida via IA" });
     }
 
-    // Fluxo normal para mensagens comerciais
-    req.url = "/conversa/proccess";
-    app._router.handle(req, res, next);
+    next(); // fluxo normal
   } catch (err) {
-    console.error("[ERRO redirecionando /conversa]", err);
-    res.status(500).json({ error: "Erro na rota de redirecionamento /conversa" });
+    console.error("[ERRO no middleware /conversa]", err.message);
+    res.status(500).json({ error: "Erro no roteamento da conversa." });
   }
 });
 
