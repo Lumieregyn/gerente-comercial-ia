@@ -8,9 +8,9 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 /**
  * Gatilho de Checklist Final de Fechamento
  */
-async function checklistFechamento({ nomeCliente, nomeVendedor, numeroVendedor, contexto, texto }) {
-  // 1) recuperar histórico semântico
-  const hist = await buscarMemoria(contexto, 3);
+async function checklistFechamento({ nomeCliente, nomeVendedor, numeroVendedor, contexto, texto, clienteId }) {
+  // 1) recuperar histórico semântico filtrado por cliente
+  const hist = await buscarMemoria(contexto, clienteId, 3);
   const histText = hist
     .map((h, i) => `#${i+1} [${h.score.toFixed(2)}]: ${h.metadata.evento} → ${h.metadata.texto}`)
     .join("\n");
