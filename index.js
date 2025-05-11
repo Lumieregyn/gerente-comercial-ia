@@ -71,21 +71,24 @@ app.post("/conversa", async (req, res) => {
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
         // áudio → Whisper
-        if (a.type === "audio" && a.payload?.url) {
-          const t = await transcreverAudio(a.payload.url);
-          if (t) {
-            contextoExtra += "\n" + t;
-            logIA({
-              cliente:   nomeCliente,
-              vendedor:  attendant.Name || "Desconhecido",
-              evento:    "Áudio transcrito",
-              tipo:      "entrada",
-              texto:     t,
-              decisaoIA: "Transcrição via Whisper concluída"
-            });
-          }
-        }
-
+        // no bloco de attachments do seu index.js
+if (a.type === "audio" && a.payload?.url) {
+  const t = await transcreverAudio(a.payload.url);
+  if (t && t.length > 0) {
+    console.log("[AUDIO] Texto transcrito adicionado ao contexto.");
+    contextoExtra += "\n" + t;
+    await logIA({
+      cliente: nomeCliente,
+      vendedor: attendant.Name || "Desconhecido",
+      evento: "Áudio transcrito",
+      tipo: "entrada",
+      texto: t,
+      decisaoIA: "Transcrição via Whisper concluída"
+    });
+  } else {
+    console.log("[AUDIO] Sem texto para adicionar ao contexto.");
+  }
+}
         // PDF → PDF-parse
         if (
           a.type === "file" &&
