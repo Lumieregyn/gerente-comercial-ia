@@ -18,9 +18,15 @@ const VENDEDORES = require("./vendedores.json");
 const app = express();
 app.use(bodyParser.json());
 
-// ✅ Middleware de perguntas de gestores
+// ✅ Middleware para perguntas de gestores
 const rotaConversa = require("./rotas/conversa");
 app.use("/conversa", rotaConversa);
+
+// 🔄 Proxy para mensagens não tratadas no middleware
+app.post("/conversa", async (req, res, next) => {
+  req.url = "/conversa/proccess";
+  app._router.handle(req, res, next);
+});
 
 // 🚀 Fluxo comercial principal
 app.post("/conversa/proccess", async (req, res) => {
@@ -47,12 +53,12 @@ app.post("/conversa/proccess", async (req, res) => {
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     logIA({
-      cliente:    nomeCliente,
-      vendedor:   nomeVendedorRaw,
-      evento:     "Mensagem recebida",
-      tipo:       "entrada",
+      cliente: nomeCliente,
+      vendedor: nomeVendedorRaw,
+      evento: "Mensagem recebida",
+      tipo: "entrada",
       texto,
-      decisaoIA:  "Mensagem inicial recebida e encaminhada para análise"
+      decisaoIA: "Mensagem inicial recebida e encaminhada para análise"
     });
 
     if (!dentroDoHorarioUtil()) {
@@ -65,9 +71,8 @@ app.post("/conversa/proccess", async (req, res) => {
       return res.json({ status: "Ignorado por ruído." });
     }
 
-    // 🔍 Processamento de anexos
     let contextoExtra = "";
-    let imagemBase64 = null;
+    let imagemBase64  = null;
 
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
@@ -191,12 +196,7 @@ app.post("/conversa/proccess", async (req, res) => {
     console.error("[ERRO]", err);
     return res.status(500).json({ error: "Erro interno." });
   }
-  // 🔄 Proxy para mensagens não respondidas no middleware
-app.post("/conversa", async (req, res, next) => {
-  // Redireciona para o fluxo comercial principal
-  req.url = "/conversa/proccess";
-  app._router.handle(req, res, next);
 });
-  
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
