@@ -21,13 +21,13 @@ app.use(bodyParser.json());
 
 function isGestor(numero) {
   const numerosGestores = [
-    "+554731703288", // exemplo
+    "+554731703288",
     "+5547999999999"
   ];
   return numerosGestores.includes(numero);
 }
 
-// ✅ Middleware de interceptação de perguntas de gestor
+// ✅ Middleware para tratar perguntas de gestor
 app.use("/conversa", async (req, res, next) => {
   try {
     const payload = req.body.payload;
@@ -42,11 +42,17 @@ app.use("/conversa", async (req, res, next) => {
       return res.json({ status: "Pergunta do gestor respondida via IA" });
     }
 
-    next(); // fluxo normal
+    next();
   } catch (err) {
-    console.error("[ERRO no middleware /conversa]", err.message);
-    res.status(500).json({ error: "Erro no roteamento da conversa." });
+    console.error("[ERRO /conversa middleware]", err.message);
+    res.status(500).json({ error: "Erro no roteamento de conversa" });
   }
+});
+
+// ✅ Fallback explícito para POST /conversa
+app.post("/conversa", (req, res) => {
+  // Apenas garante que o Express aceite a rota antes de /proccess
+  return res.status(200).json({ status: "OK - fallback handler ativo" });
 });
 
 // 🚀 Fluxo comercial principal
