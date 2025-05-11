@@ -40,4 +40,36 @@ async function registrarLogSemantico({
 
   // 🧹 Sanitiza nome do cliente para ASCII seguro
   const asciiCliente = cliente.replace(/[^\x00-\x7F]/g, "").replace(/\s+/g, "_");
-  const vector
+  const vector = {
+    id: `cliente_${asciiCliente}_log_${uuidv4()}`,
+    values,
+    metadata: {
+      cliente,
+      vendedor,
+      evento,
+      tipo,
+      texto,
+      decisaoIA,
+      ...detalhes,
+      timestamp: new Date().toISOString(),
+    },
+  };
+
+  try {
+    await axios.post(
+      `${PINECONE_INDEX_URL}/vectors/upsert`,
+      { vectors: [vector] },
+      {
+        headers: {
+          "Api-Key": PINECONE_API_KEY,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    console.log(`[PINECONE] Vetor upsert OK: ${vector.id}`);
+  } catch (err) {
+    console.error("[PINECONE] Falha no upsert via REST:", err.response?.data || err.message);
+  }
+}
+
+module.exports = { registrarLogSemantico };
