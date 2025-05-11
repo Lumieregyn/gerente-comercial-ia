@@ -1,7 +1,6 @@
-// index.js
-const express       = require("express");
-const bodyParser    = require("body-parser");
-const dotenv        = require("dotenv");
+const express = require("express");
+const bodyParser = require("body-parser");
+const dotenv = require("dotenv");
 dotenv.config();
 
 const { transcreverAudio }        = require("./servicos/transcreverAudio");
@@ -12,6 +11,7 @@ const { processarAlertaDeOrcamento } = require("./servicos/alertasOrcamento");
 const { checklistFechamento }     = require("./servicos/checklistFechamento");
 const { verificarPedidoEspecial } = require("./servicos/verificarPedidoEspecial");
 const { mensagemEhRuido }         = require("./utils/controleDeRuido");
+const { dentroDoHorarioUtil }     = require("./utils/dentroDoHorarioUtil");
 const { logIA }                   = require("./utils/logger");
 const { perguntarViaIA }          = require("./servicos/perguntarViaIA");
 const VENDEDORES                  = require("./vendedores.json");
@@ -20,11 +20,7 @@ const app = express();
 app.use(bodyParser.json());
 
 function normalizeNome(nome = "") {
-  return nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
+  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 }
 
 function isGestor(numero) {
@@ -55,32 +51,40 @@ app.post("/conversa", async (req, res) => {
     const nomeCliente = user.Name || "Cliente";
     const texto       = message.text || message.caption || "[attachment]";
     const numeroUser  = "+" + (user.Phone || "");
+    const nomeVendedorRaw = attendant.Name || "";
 
-    // 🎯 Intercepta pergunta de gestor
-    if (isGestor(numeroUser) && texto.includes("?")) {
+    const ehGestor = isGestor(numeroUser);
+
+    // 🎯 Perguntas de gestor são tratadas antes de qualquer validação de horário
+    if (ehGestor && texto.includes("?")) {
       await perguntarViaIA({ textoPergunta: texto, numeroGestor: numeroUser });
       return res.json({ status: "Pergunta do gestor respondida via IA" });
     }
 
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
-    // 1) grava o log de entrada
     logIA({
       cliente:    nomeCliente,
-      vendedor:   attendant.Name || "Desconhecido",
+      vendedor:   nomeVendedorRaw,
       evento:     "Mensagem recebida",
       tipo:       "entrada",
       texto,
       decisaoIA:  "Mensagem inicial recebida e encaminhada para análise"
     });
 
-    // 2) filtra ruído
+    // ⏱️ Verifica horário útil apenas para fluxo comercial (não gestores)
+    if (!dentroDoHorarioUtil()) {
+      console.log("[PAUSA] Fora do horário útil. Alerta não será enviado.");
+      return res.json({ status: "Fora do horário útil" });
+    }
+
+    // 🎯 Verifica ruído
     if (mensagemEhRuido(texto)) {
       console.log("[RUÍDO] Mensagem irrelevante detectada. Ignorando.");
       return res.json({ status: "Ignorado por ruído." });
     }
 
-    // 3) processa anexos
+    // Processa anexos (áudio, PDF, imagem)
     let contextoExtra = "";
     let imagemBase64  = null;
 
@@ -92,7 +96,7 @@ app.post("/conversa", async (req, res) => {
             contextoExtra += "\n" + t;
             await logIA({
               cliente: nomeCliente,
-              vendedor: attendant.Name || "Desconhecido",
+              vendedor: nomeVendedorRaw,
               evento: "Áudio transcrito",
               tipo: "entrada",
               texto: t,
@@ -111,7 +115,7 @@ app.post("/conversa", async (req, res) => {
             contextoExtra += "\n" + t;
             logIA({
               cliente:   nomeCliente,
-              vendedor:  attendant.Name || "Desconhecido",
+              vendedor:  nomeVendedorRaw,
               evento:    "PDF processado",
               tipo:      "entrada",
               texto:     t,
@@ -126,7 +130,7 @@ app.post("/conversa", async (req, res) => {
             contextoExtra += "\n" + t;
             logIA({
               cliente:   nomeCliente,
-              vendedor:  attendant.Name || "Desconhecido",
+              vendedor:  nomeVendedorRaw,
               evento:    "Imagem analisada",
               tipo:      "entrada",
               texto:     t,
@@ -145,17 +149,14 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
-    // 4) identifica vendedor
-    const nomeVendedorRaw = attendant.Name || "";
     const keyVend         = normalizeNome(nomeVendedorRaw);
     const numeroVendedor  = VENDEDORES[keyVend];
 
     if (!numeroVendedor && nomeVendedorRaw !== "Grupo Gestores" && nomeVendedorRaw !== "Bot") {
-  console.warn(`[ERRO] Vendedor não mapeado: ${nomeVendedorRaw}`);
-  return res.json({ warning: "Vendedor não mapeado." });
-}
+      console.warn(`[ERRO] Vendedor não mapeado: ${nomeVendedorRaw}`);
+      return res.json({ warning: "Vendedor não mapeado." });
+    }
 
-    // 5) fluxo de intenção
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
     const sinalizouFechamento = await detectarIntencao(
       nomeCliente,
@@ -191,8 +192,7 @@ app.post("/conversa", async (req, res) => {
         numeroVendedor,
         contexto: contextoExtra
       });
-    }
-    else {
+    } else {
       await processarAlertaDeOrcamento({
         nomeCliente,
         nomeVendedor: nomeVendedorRaw,
@@ -203,8 +203,7 @@ app.post("/conversa", async (req, res) => {
     }
 
     return res.json({ status: "Processado com inteligência" });
-  }
-  catch (err) {
+  } catch (err) {
     console.error("[ERRO]", err);
     return res.status(500).json({ error: "Erro interno." });
   }
