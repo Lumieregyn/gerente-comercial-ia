@@ -39,7 +39,6 @@ async function fallbackComGPT4Vision(url) {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const base64 = Buffer.from(resp.data).toString("base64");
 
-    // aqui montamos a conversa incluindo a imagem em base64
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -50,9 +49,14 @@ async function fallbackComGPT4Vision(url) {
             "Descreva o tipo de luminária, cor, modelo e aplicação do produto na imagem."
         },
         {
-          // formato suportado pelo client OpenAI para imagens
-          type: "image_url",
-          image_url: { url: `data:image/png;base64,${base64}` }
+          role: "user",
+          content: [
+            { type: "text", text: "Analise e descreva tecnicamente essa luminária:" },
+            {
+              type: "image_url",
+              image_url: { url: `data:image/png;base64,${base64}` }
+            }
+          ]
         }
       ],
       max_tokens: 500
@@ -69,11 +73,9 @@ async function fallbackComGPT4Vision(url) {
 }
 
 async function analisarImagem(url) {
-  // primeiro tenta o OCR puro
   const ocr = await analisarImagemComOCR(url);
   if (ocr) return ocr;
 
-  // se não retornou texto, cai no fallback do GPT-4o Vision
   return await fallbackComGPT4Vision(url);
 }
 
