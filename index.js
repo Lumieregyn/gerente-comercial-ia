@@ -13,19 +13,42 @@ const { verificarPedidoEspecial } = require("./servicos/verificarPedidoEspecial"
 const { mensagemEhRuido } = require("./utils/controleDeRuido");
 const { dentroDoHorarioUtil } = require("./utils/dentroDoHorarioUtil");
 const { logIA } = require("./utils/logger");
+const { perguntarViaIA } = require("./servicos/perguntarViaIA");
 const VENDEDORES = require("./vendedores.json");
 
 const app = express();
 app.use(bodyParser.json());
 
-// ✅ Middleware para perguntas de gestores
-const rotaConversa = require("./rotas/conversa");
-app.use("/conversa", rotaConversa);
+function isGestor(numero) {
+  const numerosGestores = [
+    "+554731703288", // seus números de gestores
+    "+5547999999999"
+  ];
+  return numerosGestores.includes(numero);
+}
 
-// 🔄 Proxy para mensagens não tratadas no middleware
+// ✅ ROTA UNIFICADA /conversa: pergunta de gestor OU redirecionamento
 app.post("/conversa", async (req, res, next) => {
-  req.url = "/conversa/proccess";
-  app._router.handle(req, res, next);
+  try {
+    const payload = req.body.payload;
+    const user = payload?.user;
+    const message = payload?.message || payload?.Message;
+    const texto = message?.text || message?.caption || "[attachment]";
+    const numero = "+" + (user?.Phone || "");
+
+    if (isGestor(numero) && texto.includes("?")) {
+      console.log("[IA GESTOR] Pergunta recebida fora do horário útil:", texto);
+      await perguntarViaIA({ textoPergunta: texto, numeroGestor: numero });
+      return res.json({ status: "Pergunta do gestor respondida via IA" });
+    }
+
+    // Fluxo normal para mensagens comerciais
+    req.url = "/conversa/proccess";
+    app._router.handle(req, res, next);
+  } catch (err) {
+    console.error("[ERRO redirecionando /conversa]", err);
+    res.status(500).json({ error: "Erro na rota de redirecionamento /conversa" });
+  }
 });
 
 // 🚀 Fluxo comercial principal
@@ -72,7 +95,7 @@ app.post("/conversa/proccess", async (req, res) => {
     }
 
     let contextoExtra = "";
-    let imagemBase64  = null;
+    let imagemBase64 = null;
 
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
