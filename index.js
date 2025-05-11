@@ -3,35 +3,27 @@ const bodyParser = require("body-parser");
 const dotenv = require("dotenv");
 dotenv.config();
 
-const { transcreverAudio }        = require("./servicos/transcreverAudio");
-const { extrairTextoPDF }         = require("./servicos/extrairTextoPDF");
-const { analisarImagem }          = require("./servicos/analisarImagem");
-const { detectarIntencao }        = require("./servicos/detectarIntencao");
+const { transcreverAudio } = require("./servicos/transcreverAudio");
+const { extrairTextoPDF } = require("./servicos/extrairTextoPDF");
+const { analisarImagem } = require("./servicos/analisarImagem");
+const { detectarIntencao } = require("./servicos/detectarIntencao");
 const { processarAlertaDeOrcamento } = require("./servicos/alertasOrcamento");
-const { checklistFechamento }     = require("./servicos/checklistFechamento");
+const { checklistFechamento } = require("./servicos/checklistFechamento");
 const { verificarPedidoEspecial } = require("./servicos/verificarPedidoEspecial");
-const { mensagemEhRuido }         = require("./utils/controleDeRuido");
-const { dentroDoHorarioUtil }     = require("./utils/dentroDoHorarioUtil");
-const { logIA }                   = require("./utils/logger");
-const { perguntarViaIA }          = require("./servicos/perguntarViaIA");
-const VENDEDORES                  = require("./vendedores.json");
+const { mensagemEhRuido } = require("./utils/controleDeRuido");
+const { dentroDoHorarioUtil } = require("./utils/dentroDoHorarioUtil");
+const { logIA } = require("./utils/logger");
+const VENDEDORES = require("./vendedores.json");
 
 const app = express();
 app.use(bodyParser.json());
 
-function normalizeNome(nome = "") {
-  return nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
-}
+// ✅ Middleware de perguntas de gestores
+const rotaConversa = require("./rotas/conversa");
+app.use("/conversa", rotaConversa);
 
-function isGestor(numero) {
-  const numerosGestores = [
-    "+554731703288", // exemplo
-    "+5547999999999"
-  ];
-  return numerosGestores.includes(numero);
-}
-
-app.post("/conversa", async (req, res) => {
+// 🚀 Fluxo comercial principal
+app.post("/conversa/proccess", async (req, res) => {
   try {
     const payload = req.body.payload;
     if (
@@ -50,16 +42,7 @@ app.post("/conversa", async (req, res) => {
 
     const nomeCliente = user.Name || "Cliente";
     const texto       = message.text || message.caption || "[attachment]";
-    const numeroUser  = "+" + (user.Phone || "");
     const nomeVendedorRaw = attendant.Name || "";
-
-    const ehGestor = isGestor(numeroUser);
-
-    // 🎯 Perguntas de gestor são tratadas antes de qualquer validação de horário
-    if (ehGestor && texto.includes("?")) {
-      await perguntarViaIA({ textoPergunta: texto, numeroGestor: numeroUser });
-      return res.json({ status: "Pergunta do gestor respondida via IA" });
-    }
 
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
@@ -72,21 +55,19 @@ app.post("/conversa", async (req, res) => {
       decisaoIA:  "Mensagem inicial recebida e encaminhada para análise"
     });
 
-    // ⏱️ Verifica horário útil apenas para fluxo comercial (não gestores)
     if (!dentroDoHorarioUtil()) {
       console.log("[PAUSA] Fora do horário útil. Alerta não será enviado.");
       return res.json({ status: "Fora do horário útil" });
     }
 
-    // 🎯 Verifica ruído
     if (mensagemEhRuido(texto)) {
       console.log("[RUÍDO] Mensagem irrelevante detectada. Ignorando.");
       return res.json({ status: "Ignorado por ruído." });
     }
 
-    // Processa anexos (áudio, PDF, imagem)
+    // 🔍 Processamento de anexos
     let contextoExtra = "";
-    let imagemBase64  = null;
+    let imagemBase64 = null;
 
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
@@ -113,12 +94,12 @@ app.post("/conversa", async (req, res) => {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
             contextoExtra += "\n" + t;
-            logIA({
-              cliente:   nomeCliente,
-              vendedor:  nomeVendedorRaw,
-              evento:    "PDF processado",
-              tipo:      "entrada",
-              texto:     t,
+            await logIA({
+              cliente: nomeCliente,
+              vendedor: nomeVendedorRaw,
+              evento: "PDF processado",
+              tipo: "entrada",
+              texto: t,
               decisaoIA: "Texto extraído com sucesso do PDF"
             });
           }
@@ -128,12 +109,12 @@ app.post("/conversa", async (req, res) => {
           const t = await analisarImagem(a.payload.url);
           if (t) {
             contextoExtra += "\n" + t;
-            logIA({
-              cliente:   nomeCliente,
-              vendedor:  nomeVendedorRaw,
-              evento:    "Imagem analisada",
-              tipo:      "entrada",
-              texto:     t,
+            await logIA({
+              cliente: nomeCliente,
+              vendedor: nomeVendedorRaw,
+              evento: "Imagem analisada",
+              tipo: "entrada",
+              texto: t,
               decisaoIA: "OCR concluído na imagem recebida"
             });
           }
@@ -149,8 +130,11 @@ app.post("/conversa", async (req, res) => {
       }
     }
 
-    const keyVend         = normalizeNome(nomeVendedorRaw);
-    const numeroVendedor  = VENDEDORES[keyVend];
+    const normalizeNome = nome =>
+      nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+
+    const keyVend = normalizeNome(nomeVendedorRaw);
+    const numeroVendedor = VENDEDORES[keyVend];
 
     if (!numeroVendedor && nomeVendedorRaw !== "Grupo Gestores" && nomeVendedorRaw !== "Bot") {
       console.warn(`[ERRO] Vendedor não mapeado: ${nomeVendedorRaw}`);
