@@ -1,24 +1,32 @@
+// servicos/analisarImagem.js
 const axios = require("axios");
 const Tesseract = require("tesseract.js");
+const { OpenAI } = require("openai");
+
+// instancia o OpenAI com sua chave de ambiente
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 async function analisarImagemComOCR(url) {
   try {
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const buffer = Buffer.from(resp.data);
-    console.log("[OCR] Iniciando análise de imagem com Tesseract...");
 
+    console.log("[OCR] Iniciando análise de imagem com Tesseract...");
     const resultado = await Tesseract.recognize(buffer, "por", {
-      logger: m => console.log(`[OCR] ${m.status} ${m.progress ? `- ${Math.round(m.progress * 100)}%` : ""}`)
+      logger: m => {
+        const p = m.progress ? ` - ${Math.round(m.progress * 100)}%` : "";
+        console.log(`[OCR] ${m.status}${p}`);
+      }
     });
 
     const texto = resultado.data.text?.trim();
     if (texto && texto.length >= 3) {
       console.log("[OCR] Texto extraído:", texto);
       return texto;
-    } else {
-      console.log("[OCR] Nenhum texto relevante encontrado.");
-      return null;
     }
+    console.log("[OCR] Nenhum texto relevante encontrado.");
+    return null;
+
   } catch (err) {
     console.error("[ERRO OCR]", err.message);
     return null;
@@ -27,34 +35,46 @@ async function analisarImagemComOCR(url) {
 
 async function fallbackComGPT4Vision(url) {
   try {
+    console.log("[FALLBACK] Ativando GPT-4o Vision...");
     const resp = await axios.get(url, { responseType: "arraybuffer" });
     const base64 = Buffer.from(resp.data).toString("base64");
 
-    const resposta = await axios.post(`${process.env.API_URL || "http://localhost:3000"}/analisar-imagem`, {
-      imagemBase64: base64
+    // aqui montamos a conversa incluindo a imagem em base64
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Você é um especialista técnico em iluminação. " +
+            "Descreva o tipo de luminária, cor, modelo e aplicação do produto na imagem."
+        },
+        {
+          // formato suportado pelo client OpenAI para imagens
+          type: "image_url",
+          image_url: { url: `data:image/png;base64,${base64}` }
+        }
+      ],
+      max_tokens: 500
     });
 
-    const descricao = resposta.data.descricao;
-    if (descricao) {
-      console.log("[GPT-4o Vision] Descrição retornada:", descricao);
-      return descricao;
-    } else {
-      console.log("[GPT-4o Vision] Nenhuma descrição retornada.");
-      return null;
-    }
-  } catch (erro) {
-    console.error("[ERRO GPT-4o Vision Fallback]", erro.message);
+    const descricao = completion.choices[0].message.content.trim();
+    console.log("[GPT-4o Vision] Descrição:", descricao);
+    return descricao;
+
+  } catch (err) {
+    console.error("[ERRO GPT-4o Vision Fallback]", err.message);
     return null;
   }
 }
 
 async function analisarImagem(url) {
-  const resultadoOCR = await analisarImagemComOCR(url);
-  if (resultadoOCR) return resultadoOCR;
+  // primeiro tenta o OCR puro
+  const ocr = await analisarImagemComOCR(url);
+  if (ocr) return ocr;
 
-  console.log("[FALLBACK] Ativando fallback visual com GPT-4o...");
-  const resultadoVision = await fallbackComGPT4Vision(url);
-  return resultadoVision || null;
+  // se não retornou texto, cai no fallback do GPT-4o Vision
+  return await fallbackComGPT4Vision(url);
 }
 
 module.exports = { analisarImagem };
