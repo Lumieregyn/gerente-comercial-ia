@@ -13,11 +13,14 @@ const { checklistFechamento }     = require("./servicos/checklistFechamento");
 const { verificarPedidoEspecial } = require("./servicos/verificarPedidoEspecial");
 const { mensagemEhRuido }         = require("./utils/controleDeRuido");
 const { logIA }                   = require("./utils/logger");
+const VENDEDORES                  = require("./vendedores.json");
 
-const VENDEDORES = require("./vendedores.json");
+// Nova rota para perguntas de gestores via IA
+const rotaConversa                = require("./rotas/conversa");
 
 const app = express();
 app.use(bodyParser.json());
+app.use("/conversa", rotaConversa); // Middleware de filtragem de perguntas de gestor
 
 function normalizeNome(nome = "") {
   return nome
@@ -27,7 +30,8 @@ function normalizeNome(nome = "") {
     .toLowerCase();
 }
 
-app.post("/conversa", async (req, res) => {
+// Fluxo comercial tradicional
+app.post("/conversa/proccess", async (req, res) => {
   try {
     const payload = req.body.payload;
     if (
@@ -70,26 +74,24 @@ app.post("/conversa", async (req, res) => {
 
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
-        // áudio → Whisper
-        // no bloco de attachments do seu index.js
-if (a.type === "audio" && a.payload?.url) {
-  const t = await transcreverAudio(a.payload.url);
-  if (t && t.length > 0) {
-    console.log("[AUDIO] Texto transcrito adicionado ao contexto.");
-    contextoExtra += "\n" + t;
-    await logIA({
-      cliente: nomeCliente,
-      vendedor: attendant.Name || "Desconhecido",
-      evento: "Áudio transcrito",
-      tipo: "entrada",
-      texto: t,
-      decisaoIA: "Transcrição via Whisper concluída"
-    });
-  } else {
-    console.log("[AUDIO] Sem texto para adicionar ao contexto.");
-  }
-}
-        // PDF → PDF-parse
+        if (a.type === "audio" && a.payload?.url) {
+          const t = await transcreverAudio(a.payload.url);
+          if (t && t.length > 0) {
+            console.log("[AUDIO] Texto transcrito adicionado ao contexto.");
+            contextoExtra += "\n" + t;
+            await logIA({
+              cliente: nomeCliente,
+              vendedor: attendant.Name || "Desconhecido",
+              evento: "Áudio transcrito",
+              tipo: "entrada",
+              texto: t,
+              decisaoIA: "Transcrição via Whisper concluída"
+            });
+          } else {
+            console.log("[AUDIO] Sem texto para adicionar ao contexto.");
+          }
+        }
+
         if (
           a.type === "file" &&
           a.payload?.url &&
@@ -109,7 +111,6 @@ if (a.type === "audio" && a.payload?.url) {
           }
         }
 
-        // Imagem → OCR + Base64
         if (a.type === "image" && a.payload?.url) {
           const t = await analisarImagem(a.payload.url);
           if (t) {
@@ -156,7 +157,6 @@ if (a.type === "audio" && a.payload?.url) {
     if (sinalizouFechamento) {
       console.log("[IA] Intenção de fechamento detectada.");
 
-      // checklist de fechamento
       await checklistFechamento({
         nomeCliente,
         nomeVendedor: nomeVendedorRaw,
@@ -165,7 +165,6 @@ if (a.type === "audio" && a.payload?.url) {
         texto
       });
 
-      // compara imagem se tiver
       if (imagemBase64) {
         const { compararImagemProduto } = require("./servicos/compararImagemProduto");
         await compararImagemProduto({
@@ -177,7 +176,6 @@ if (a.type === "audio" && a.payload?.url) {
         });
       }
 
-      // pedido especial?
       await verificarPedidoEspecial({
         nomeCliente,
         nomeVendedor: nomeVendedorRaw,
@@ -186,7 +184,6 @@ if (a.type === "audio" && a.payload?.url) {
       });
     }
     else {
-      // alerta de orçamento
       await processarAlertaDeOrcamento({
         nomeCliente,
         nomeVendedor: nomeVendedorRaw,
