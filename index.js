@@ -29,6 +29,8 @@ function isGestor(numero) {
 
 // ✅ Middleware para tratar perguntas de gestor
 app.use("/conversa", async (req, res, next) => {
+  console.log("[DEBUG] Middleware /conversa entrou");
+
   try {
     const payload = req.body.payload;
     const user = payload?.user;
@@ -42,17 +44,16 @@ app.use("/conversa", async (req, res, next) => {
       return res.json({ status: "Pergunta do gestor respondida via IA" });
     }
 
-    next();
+    next(); // continua para fluxo comercial
   } catch (err) {
     console.error("[ERRO /conversa middleware]", err.message);
     res.status(500).json({ error: "Erro no roteamento de conversa" });
   }
 });
 
-// ✅ Fallback explícito para POST /conversa
+// ✅ Fallback explícito (evita 404)
 app.post("/conversa", (req, res) => {
-  // Apenas garante que o Express aceite a rota antes de /proccess
-  return res.status(200).json({ status: "OK - fallback handler ativo" });
+  return res.status(200).json({ status: "OK - fallback ativo" });
 });
 
 // 🚀 Fluxo comercial principal
@@ -69,12 +70,12 @@ app.post("/conversa/proccess", async (req, res) => {
       return res.status(400).json({ error: "Payload incompleto" });
     }
 
-    const message   = payload.message || payload.Message;
-    const user      = payload.user;
+    const message = payload.message || payload.Message;
+    const user = payload.user;
     const attendant = payload.attendant || {};
 
     const nomeCliente = user.Name || "Cliente";
-    const texto       = message.text || message.caption || "[attachment]";
+    const texto = message.text || message.caption || "[attachment]";
     const nomeVendedorRaw = attendant.Name || "";
 
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
