@@ -44,7 +44,9 @@ async function registrarLogSemantico({
 
   // 2) Monta o vetor para upsert
   const vector = {
-    id: `cliente_${cliente}_log_${uuidv4()}`, // Agrupamento por cliente
+    const asciiCliente = cliente.replace(/[^\x00-\x7F]/g, "").replace(/\s+/g, "_");
+id: `cliente_${asciiCliente}_log_${uuidv4()}`,
+, // Agrupamento por cliente
     values,
     metadata: {
       cliente,
