@@ -4,7 +4,7 @@ const { perguntarViaIA } = require("../servicos/perguntarViaIA");
 
 function isGestor(numero) {
   const numerosGestores = [
-    "+554731703288", // exemplo
+    "+554731703288", // Exemplo - Adicione todos os gestores autorizados
     "+5547999999999"
   ];
   return numerosGestores.includes(numero);
@@ -28,19 +28,19 @@ router.post("/", async (req, res, next) => {
     const texto   = message.text || message.caption || "[attachment]";
     const numeroUser = "+" + (user.Phone || "");
 
-    // ✅ Se for GESTOR e conter "?" → pergunta a ser interpretada pela IA
+    // 🎯 Se for GESTOR e tiver interrogação, redireciona para IA
     if (isGestor(numeroUser) && texto.includes("?")) {
-      console.log("[IA GESTOR] Interpretando pergunta via IA:", texto);
+      console.log("[IA GESTOR] Pergunta recebida:", texto);
       await perguntarViaIA({ textoPergunta: texto, numeroGestor: numeroUser });
       return res.json({ status: "Pergunta do gestor respondida via IA" });
     }
 
-    // 👉 Continua para o fluxo normal (cliente/vendedor)
+    // ↪️ Se não for gestor ou não for pergunta, continua para /proccess
     next();
 
   } catch (err) {
     console.error("[ERRO /conversa]", err.message);
-    res.status(500).json({ error: "Erro interno na análise de gestor." });
+    res.status(500).json({ error: "Erro interno ao interpretar mensagem do gestor." });
   }
 });
 
