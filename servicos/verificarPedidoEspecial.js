@@ -6,41 +6,54 @@ const { buscarMemoria } = require("../utils/memoria");
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
- * Gatilho de Negociação Especial
+ * Verifica itens sem SKU ou imagem formal no orçamento após intenção de fechamento.
  */
-async function verificarPedidoEspecial({ nomeCliente, nomeVendedor, numeroVendedor, contexto }) {
-  const systemPrompt = `
-Você é um Gerente Comercial IA. Avalie se o pedido especial está completo.
-Retorne uma lista numerada de itens faltantes ou problemas críticos.
-`.trim();
+async function verificarPedidoEspecial({ nomeCliente, nomeVendedor, numeroVendedor, contexto, texto, clienteId }) {
+  // 1) histórico relevante do cliente
+  const hist = await buscarMemoria(texto, clienteId, 3);
+  const histText = hist
+    .map((h, i) => `#${i+1} [${h.score.toFixed(2)}]: ${h.metadata.evento} → ${h.metadata.texto}`)
+    .join("\n");
 
-  const hist = await buscarMemoria(contexto, 3);
-  const histText = hist.map((h,i)=>`#${i+1}[${h.score.toFixed(2)}]: ${h.metadata.evento}`).join("\n");
+  // 2) prompts de análise
+  const systemPrompt = `
+Você é um especialista comercial treinado para revisar negociações especiais.
+Seu trabalho é garantir que todos os pontos críticos foram validados antes de fechar o pedido.
+`.trim();
 
   const userPrompt = `
 Cliente: ${nomeCliente}
-Contexto:\n${contexto}
+Produto especial detectado (sem SKU formalizado).
 
-Histórico relevante:\n${histText}
+Contexto atual:\n${contexto}
+Histórico do cliente:\n${histText}
 
-Liste itens faltantes ou riscos na negociação especial.
+Valide os seguintes pontos:
+1. Imagem coerente com o que foi negociado?
+2. Cor e modelo alinhados?
+3. Voltagem informada?
+4. Prazos discutidos claramente?
+5. Formalização clara e documentada?
+
+Liste apenas os pontos críticos a serem ajustados. Se tudo estiver ok, diga "Negociação validada".
 `.trim();
 
-  const response = await openai.chat.completions.create({
+  const completion = await openai.chat.completions.create({
     model: "gpt-4o",
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    max_tokens: 200
+    max_tokens: 250
   });
 
-  const faltas = response.choices[0].message.content.trim();
-  if (!/nenhum|nada/i.test(faltas)) {
-    const msg = `🚨 *Alerta de Negociação Especial*\n\n⚠️ Prezado(a) *${nomeVendedor}*, encontramos riscos:\n\n${faltas}\n\n💡 Verifique e confirme com o cliente antes de prosseguir.`;
+  const analise = completion.choices[0].message.content.trim();
+  if (!analise.toLowerCase().includes("negociação validada")) {
+    const mensagem = `✅ *Checklist de Produto Especial - IA*\n\n⚠️ Prezado(a) *${nomeVendedor}*, identificamos pontos que devem ser validados antes de fechar o pedido:\n\n${analise}\n\n📎 Produto sem cadastro formal — atenção redobrada.`;
+
     await axios.post(`${process.env.WPP_URL}/send-message`, {
       number: numeroVendedor,
-      message: msg
+      message: mensagem
     });
   }
 }
