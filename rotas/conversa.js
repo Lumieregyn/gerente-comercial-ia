@@ -2,6 +2,16 @@
 const express = require("express");
 const router = express.Router();
 const { perguntarViaIA } = require("../servicos/perguntarViaIA");
+const message   = payload.message || payload.Message;
+const user      = payload.user;
+const texto     = message.text || message.caption || "[attachment]";
+const numeroUser = "+" + (user.Phone || "");
+
+if (isGestor(numeroUser) && texto.includes("?")) {
+  await perguntarViaIA({ textoPergunta: texto, numeroGestor: numeroUser });
+  return res.json({ status: "Pergunta do gestor respondida via IA" });
+}
+
 
 function isGestor(numero) {
   const numerosGestores = [
