@@ -34,10 +34,11 @@ NOME: ...
       max_tokens: 100
     });
 
-    const resposta = interpretacao.choices[0].message.content;
+    const resposta = interpretacao.choices[0].message.content || "";
     const match = resposta.match(/INTENCAO:\s*(.+)\nNOME:\s*(.+)/i);
 
     if (!match) {
+      console.warn("[IA GESTOR] Formato inválido na resposta da IA:", resposta);
       await enviarRespostaWhatsApp(numeroGestor, "❌ Não consegui entender a pergunta. Pode reformular?");
       return;
     }
@@ -66,16 +67,21 @@ ${respostaContexto}
 
     await enviarRespostaWhatsApp(numeroGestor, mensagemFinal);
   } catch (err) {
-    console.error("[ERRO perguntarViaIA]", err.message);
+    console.error("[ERRO perguntarViaIA]", err?.response?.data || err.message);
     await enviarRespostaWhatsApp(numeroGestor, "⚠️ Ocorreu um erro ao processar sua pergunta. Tente novamente.");
   }
 }
 
 async function enviarRespostaWhatsApp(numero, mensagem) {
-  await axios.post(`${process.env.WPP_URL}/send-message`, {
-    number: numero,
-    message: mensagem
-  });
+  try {
+    await axios.post(`${process.env.WPP_URL}/send-message`, {
+      number: numero,
+      message: mensagem
+    });
+    console.log("[ENVIADO] Mensagem enviada ao gestor:", numero);
+  } catch (err) {
+    console.error("[ERRO enviarRespostaWhatsApp]", err?.response?.data || err.message);
+  }
 }
 
 module.exports = { perguntarViaIA };
