@@ -54,4 +54,20 @@ async function buscarMemoria(text, cliente, topK = 5) {
   }));
 }
 
-module.exports = { buscarMemoria };
+/**
+ * Monta contexto com base na memória do cliente
+ * @param {string} clienteId 
+ * @param {string} texto 
+ * @returns {string}
+ */
+async function montarPromptComMemoria(clienteId, texto) {
+  const memorias = await buscarMemoria(texto, clienteId, 5);
+  return memorias.length
+    ? memorias.map(m => `🧠 ${m.metadata.texto}`).join("\n")
+    : "🧠 Nenhum histórico relevante encontrado.";
+}
+
+module.exports = {
+  buscarMemoria,
+  montarPromptComMemoria
+};
