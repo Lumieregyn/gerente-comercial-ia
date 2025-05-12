@@ -19,16 +19,15 @@ const VENDEDORES = require("./vendedores.json");
 const app = express();
 app.use(bodyParser.json());
 
-// ✅ Lista de números autorizados como gestores
 function isGestor(numero) {
   const numerosGestores = [
-    "+554731703288",                     // Número real
-    "+120363416457397022"               // Grupo com "+" incluso
+    "+554731703288",
+    "+120363416457397022"
   ];
   return numerosGestores.includes(numero);
 }
 
-// ✅ Middleware para interceptar perguntas de gestores via WhatsApp
+// Middleware para interceptar perguntas de gestores
 app.use("/conversa", async (req, res, next) => {
   console.log("[DEBUG] ENTROU NO MIDDLEWARE DE GESTOR");
 
@@ -57,16 +56,22 @@ app.use("/conversa", async (req, res, next) => {
   }
 });
 
-// ✅ Redireciona POST /conversa para /conversa/proccess
+// Redireciona POST /conversa para o fluxo principal
 app.post("/conversa", (req, res, next) => {
   req.url = "/conversa/proccess";
   next();
 });
 
-// 🚀 Fluxo principal de atendimento comercial
+// Fluxo principal
 app.post("/conversa/proccess", async (req, res) => {
   try {
     const payload = req.body.payload;
+
+    if (!payload?.message?.text && payload?.type !== "message") {
+      console.log("[IGNORADO] Evento não é mensagem de texto. Tipo:", payload?.type);
+      return res.status(200).json({ status: "Evento ignorado." });
+    }
+
     if (
       !payload ||
       !payload.user ||
@@ -85,8 +90,6 @@ app.post("/conversa/proccess", async (req, res) => {
     const texto = message.text || message.caption || "[attachment]";
     const nomeVendedorRaw = attendant.Name || "";
 
-    console.log("[DEBUG] Nome do cliente (user.Name):", user?.Name);
-    console.log("[DEBUG] Telefone do cliente (user.Phone):", user?.Phone);
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     logIA({
@@ -112,8 +115,6 @@ app.post("/conversa/proccess", async (req, res) => {
     let imagemBase64 = null;
 
     if (Array.isArray(message.attachments)) {
-      console.log("[DEBUG] Anexos recebidos:", message.attachments);
-
       for (const a of message.attachments) {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
