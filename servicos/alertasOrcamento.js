@@ -1,6 +1,6 @@
 const { dentroDoHorarioUtil } = require("../utils/dentroDoHorarioUtil");
 const { logIA } = require("../utils/logger");
-const { calcularHorasUteis } = require("../utils/horario-util");
+const calcularHorasUteis = require("../utils/horario-util");
 
 const HISTORICO = new Map();
 
@@ -31,7 +31,6 @@ async function processarAlertaDeOrcamento({ nomeCliente, nomeVendedor, numeroVen
     return;
   }
 
-  // Exemplo apenas de log (os disparos de mensagens reais ficam fora dessa função)
   console.log(`[ALERTA] Cliente ${nomeCliente} está aguardando orçamento há ${horasUteis}h úteis.`);
   await logIA({
     cliente: nomeCliente,
