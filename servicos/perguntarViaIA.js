@@ -47,8 +47,8 @@ CONTEXTO: ...
 
     console.log("[IA GESTOR] Interpretado:", { acao, entidade, nome, contexto });
 
-    if (!nome) {
-      await enviarRespostaWhatsApp(numeroGestor, "❌ Nenhum nome foi identificado para análise.");
+    if (!nome || nome.length < 2 || nome.toLowerCase() === "desconhecido") {
+      await enviarRespostaWhatsApp(numeroGestor, "❌ Não consegui identificar um nome válido na pergunta.");
       return;
     }
 
@@ -57,12 +57,17 @@ CONTEXTO: ...
     if (["resumo", "sentimento", "status"].includes(acao) && memorias.length > 0) {
       const historicoTexto = memorias
         .map(m => m.metadata.texto?.trim())
-        .filter(Boolean)
+        .filter(t => t && t.length > 20)
         .slice(0, 8)
         .map((t, i) => `• ${t}`)
         .join("\n");
 
       console.log("[DEBUG] Enviando histórico para análise do GPT:", historicoTexto);
+
+      if (!historicoTexto || historicoTexto.length < 40) {
+        await enviarRespostaWhatsApp(numeroGestor, "⚠️ Não encontrei conteúdo suficiente para gerar um resumo.");
+        return;
+      }
 
       const resumoPrompt = `
 Você é um assistente comercial. Resuma os principais pontos abaixo com foco em atendimento, qualidade, atrasos e sentimento geral.
