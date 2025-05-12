@@ -56,39 +56,36 @@ app.use("/conversa", async (req, res, next) => {
   }
 });
 
-// Redireciona POST /conversa para o fluxo principal
 app.post("/conversa", (req, res, next) => {
   req.url = "/conversa/proccess";
   next();
 });
 
-// Fluxo principal
 app.post("/conversa/proccess", async (req, res) => {
   try {
     const payload = req.body.payload;
+    const message = payload?.message || payload?.Message;
 
-    if (!payload?.message?.text && payload?.type !== "message") {
-      console.log("[IGNORADO] Evento não é mensagem de texto. Tipo:", payload?.type);
-      return res.status(200).json({ status: "Evento ignorado." });
+    if (!message?.text && !message?.caption && !message?.attachments) {
+      console.log("[IGNORADO] Payload sem texto ou anexo válido.");
+      return res.status(200).json({ status: "Ignorado sem mensagem válida." });
     }
 
     if (
       !payload ||
       !payload.user ||
-      !(payload.message || payload.Message) ||
       !payload.channel
     ) {
       console.error("[ERRO] Payload incompleto:", req.body);
       return res.status(400).json({ error: "Payload incompleto" });
     }
 
-    const message = payload.message || payload.Message;
     const user = payload.user;
     const attendant = payload.attendant || {};
 
-    const nomeCliente = user.Name || "Cliente";
+    const nomeCliente = user?.Name?.trim() || `Cliente_${user?.Phone || "Desconhecido"}`;
     const texto = message.text || message.caption || "[attachment]";
-    const nomeVendedorRaw = attendant.Name || "";
+    const nomeVendedorRaw = attendant?.Name?.trim() || "Bot";
 
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
@@ -177,9 +174,8 @@ app.post("/conversa/proccess", async (req, res) => {
     const keyVend = normalizeNome(nomeVendedorRaw);
     const numeroVendedor = VENDEDORES[keyVend];
 
-    if (!numeroVendedor && nomeVendedorRaw !== "Grupo Gestores" && nomeVendedorRaw !== "Bot") {
+    if (!numeroVendedor && !["Bot", "Grupo Gestores"].includes(nomeVendedorRaw)) {
       console.warn(`[ERRO] Vendedor não mapeado: ${nomeVendedorRaw}`);
-      return res.json({ warning: "Vendedor não mapeado." });
     }
 
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
