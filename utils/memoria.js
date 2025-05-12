@@ -1,6 +1,4 @@
-// utils/memoria.js
-
-const axios      = require("axios");
+const axios = require("axios");
 const { OpenAI } = require("openai");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -16,35 +14,34 @@ const {
  * @returns {number[]} vetor de 1536 floats
  */
 async function gerarEmbedding(text) {
+  if (!text || text.trim().length === 0) {
+    throw new Error("Texto vazio: não é possível gerar embedding.");
+  }
+
   const resp = await openai.embeddings.create({
     model: "text-embedding-ada-002",
     input: text
   });
+
   return resp.data[0].embedding;
 }
 
 /**
- * Busca os N registros mais similares ao texto de consulta, filtrando por cliente.
+ * Busca os N registros mais similares ao texto de consulta.
  * @param {string} text
- * @param {string} cliente
  * @param {number} topK
  * @returns {Promise<Array<{score:number, metadata:object}>>}
  */
-async function buscarMemoria(text, cliente, topK = 5) {
+async function buscarMemoria(text, topK = 5) {
   const vector = await gerarEmbedding(text);
-
-  const body = {
-    topK,
-    includeMetadata: true,
-    vector,
-    filter: {
-      cliente
-    }
-  };
 
   const resp = await axios.post(
     `${PINECONE_INDEX_URL}/query`,
-    body,
+    {
+      topK,
+      includeMetadata: true,
+      vector
+    },
     { headers: { "Api-Key": PINECONE_API_KEY } }
   );
 
@@ -54,20 +51,4 @@ async function buscarMemoria(text, cliente, topK = 5) {
   }));
 }
 
-/**
- * Monta contexto com base na memória do cliente
- * @param {string} clienteId 
- * @param {string} texto 
- * @returns {string}
- */
-async function montarPromptComMemoria(clienteId, texto) {
-  const memorias = await buscarMemoria(texto, clienteId, 5);
-  return memorias.length
-    ? memorias.map(m => `🧠 ${m.metadata.texto}`).join("\n")
-    : "🧠 Nenhum histórico relevante encontrado.";
-}
-
-module.exports = {
-  buscarMemoria,
-  montarPromptComMemoria
-};
+module.exports = { buscarMemoria };
