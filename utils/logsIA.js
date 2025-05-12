@@ -1,21 +1,18 @@
-// utils/logsIA.js
-
 const axios = require("axios");
 const { OpenAI } = require("openai");
 const { v4: uuidv4 } = require("uuid");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const PINECONE_API_KEY   = process.env.PINECONE_API_KEY;
+const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
 const PINECONE_INDEX_URL = process.env.PINECONE_INDEX_URL;
 
 if (!PINECONE_API_KEY || !PINECONE_INDEX_URL) {
-  console.warn("[PINECONE] Variáveis PINECONE_API_KEY ou PINECONE_INDEX_URL não configuradas.");
+  console.warn("[PINECONE] Variáveis não configuradas.");
 }
 
 /**
- * Registra um log semântico no Pinecone usando embedding local (ADA-002) e REST upsert.
- * @param {{cliente:string,vendedor:string,evento:string,tipo:string,texto:string,decisaoIA:string,detalhes?:object}} opts
+ * Registra um log semântico no Pinecone usando embedding local.
  */
 async function registrarLogSemantico({
   cliente,
@@ -26,6 +23,11 @@ async function registrarLogSemantico({
   decisaoIA,
   detalhes = {},
 }) {
+  if (!texto || texto.trim().length < 3) {
+    console.warn("[LOGIA] Ignorado: texto vazio ou muito curto.");
+    return;
+  }
+
   let values;
   try {
     const resp = await openai.embeddings.create({
@@ -38,10 +40,10 @@ async function registrarLogSemantico({
     return;
   }
 
-  // 🧹 Sanitiza nome do cliente para ASCII seguro
-  const asciiCliente = cliente.replace(/[^\x00-\x7F]/g, "").replace(/\s+/g, "_");
+  const cleanId = `cliente_${cliente.replace(/\s+/g, "_")}_log_${uuidv4()}`;
+
   const vector = {
-    id: `cliente_${asciiCliente}_log_${uuidv4()}`,
+    id: cleanId,
     values,
     metadata: {
       cliente,
@@ -68,7 +70,7 @@ async function registrarLogSemantico({
     );
     console.log(`[PINECONE] Vetor upsert OK: ${vector.id}`);
   } catch (err) {
-    console.error("[PINECONE] Falha no upsert via REST:", err.response?.data || err.message);
+    console.error("[PINECONE] Falha no upsert:", err.response?.data || err.message);
   }
 }
 
