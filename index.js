@@ -21,13 +21,12 @@ app.use(bodyParser.json());
 
 function isGestor(numero) {
   const numerosGestores = [
-    "+554731703288",                     // Número real
-    "+120363416457397022"               // Grupo com "+" incluso
+    "+554731703288",
+    "+120363416457397022"
   ];
   return numerosGestores.includes(numero);
 }
 
-// ✅ Middleware para interceptar perguntas de gestores
 app.use("/conversa", async (req, res, next) => {
   console.log("[DEBUG] Middleware /conversa entrou");
 
@@ -37,7 +36,7 @@ app.use("/conversa", async (req, res, next) => {
     const message = payload?.message || payload?.Message;
     const texto = message?.text || message?.caption || "[attachment]";
     const raw = user?.Phone || "";
-    const numero = "+" + raw; // Aplica "+" tanto para números quanto IDs de grupo
+    const numero = "+" + raw;
 
     console.log("[DEBUG] Número recebido:", numero);
     console.log("[DEBUG] Texto recebido:", texto);
@@ -56,12 +55,10 @@ app.use("/conversa", async (req, res, next) => {
   }
 });
 
-// ✅ Fallback básico
 app.post("/conversa", (req, res) => {
   return res.status(200).json({ status: "OK - fallback ativo" });
 });
 
-// 🚀 Fluxo comercial
 app.post("/conversa/proccess", async (req, res) => {
   try {
     const payload = req.body.payload;
@@ -78,6 +75,9 @@ app.post("/conversa/proccess", async (req, res) => {
     const message = payload.message || payload.Message;
     const user = payload.user;
     const attendant = payload.attendant || {};
+
+    console.log("[DEBUG] Nome do cliente (user.Name):", user?.Name);
+    console.log("[DEBUG] Telefone do cliente (user.Phone):", user?.Phone);
 
     const nomeCliente = user.Name || "Cliente";
     const texto = message.text || message.caption || "[attachment]";
@@ -108,6 +108,8 @@ app.post("/conversa/proccess", async (req, res) => {
     let imagemBase64 = null;
 
     if (Array.isArray(message.attachments)) {
+      console.log("[DEBUG] Anexos recebidos:", message.attachments);
+
       for (const a of message.attachments) {
         if (a.type === "audio" && a.payload?.url) {
           const t = await transcreverAudio(a.payload.url);
@@ -124,11 +126,7 @@ app.post("/conversa/proccess", async (req, res) => {
           }
         }
 
-        if (
-          a.type === "file" &&
-          a.payload?.url &&
-          a.FileName?.toLowerCase().endsWith(".pdf")
-        ) {
+        if (a.type === "file" && a.payload?.url && a.FileName?.toLowerCase().endsWith(".pdf")) {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
             contextoExtra += "\n" + t;
@@ -185,6 +183,7 @@ app.post("/conversa/proccess", async (req, res) => {
       texto,
       contextoExtra
     );
+    console.log("[DEBUG] detectou intenção de fechamento?", sinalizouFechamento);
 
     if (sinalizouFechamento) {
       console.log("[IA] Intenção de fechamento detectada.");
