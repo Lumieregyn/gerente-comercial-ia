@@ -1,23 +1,34 @@
-const frasesFracas = [
-  "só conferindo",
-  "ok",
-  "blz",
-  "beleza",
-  "isso",
-  "tá bom",
-  "👍",
-  "confirmado",
-  "valeu",
-  "entendido"
-];
+const axios = require("axios");
+const { OpenAI } = require("openai");
 
-function mensagemEhRuido(texto) {
-  if (!texto) return true;
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const { PINECONE_API_KEY, PINECONE_INDEX_URL } = process.env;
 
-  const t = texto.trim().toLowerCase();
-  if (t.length <= 3) return true;
-
-  return frasesFracas.some(f => t.includes(f));
+async function gerarEmbedding(text) {
+  const resp = await openai.embeddings.create({
+    model: "text-embedding-ada-002",
+    input: text
+  });
+  return resp.data[0].embedding;
 }
 
-module.exports = { mensagemEhRuido };
+async function buscarMemoria(text, topK = 5) {
+  const vector = await gerarEmbedding(text);
+
+  const resp = await axios.post(
+    `${PINECONE_INDEX_URL}/query`,
+    {
+      topK,
+      includeMetadata: true,
+      vector
+    },
+    { headers: { "Api-Key": PINECONE_API_KEY } }
+  );
+
+  return resp.data.matches.map(m => ({
+    score: m.score,
+    metadata: m.metadata
+  }));
+}
+
+module.exports = { buscarMemoria };
