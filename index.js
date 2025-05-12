@@ -71,11 +71,7 @@ app.post("/conversa/proccess", async (req, res) => {
       return res.status(200).json({ status: "Ignorado sem mensagem válida." });
     }
 
-    if (
-      !payload ||
-      !payload.user ||
-      !payload.channel
-    ) {
+    if (!payload?.user || !payload.channel) {
       console.error("[ERRO] Payload incompleto:", req.body);
       return res.status(400).json({ error: "Payload incompleto" });
     }
@@ -87,6 +83,8 @@ app.post("/conversa/proccess", async (req, res) => {
     const texto = message.text || message.caption || "[attachment]";
     const nomeVendedorRaw = attendant?.Name?.trim() || "Bot";
 
+    console.log("[DEBUG] Nome do cliente (user.Name):", nomeCliente);
+    console.log("[DEBUG] Nome do vendedor (attendant.Name):", nomeVendedorRaw);
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     logIA({
@@ -98,7 +96,9 @@ app.post("/conversa/proccess", async (req, res) => {
       decisaoIA: "Mensagem inicial recebida e encaminhada para análise"
     });
 
-    if (!dentroDoHorarioUtil()) {
+    const horaOK = dentroDoHorarioUtil();
+    console.log("[DEBUG] Horário útil?", horaOK);
+    if (!horaOK) {
       console.log("[PAUSA] Fora do horário útil. Alerta não será enviado.");
       return res.json({ status: "Fora do horário útil" });
     }
@@ -170,7 +170,6 @@ app.post("/conversa/proccess", async (req, res) => {
 
     const normalizeNome = nome =>
       nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
-
     const keyVend = normalizeNome(nomeVendedorRaw);
     const numeroVendedor = VENDEDORES[keyVend];
 
