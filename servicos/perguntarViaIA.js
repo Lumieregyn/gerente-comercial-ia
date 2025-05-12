@@ -40,7 +40,6 @@ CONTEXTO: ...
       return;
     }
 
-    // ✅ Aplicando .trim() em todos os campos
     const acao = match[1].trim();
     const entidade = match[2].trim();
     const nome = match[3].trim();
@@ -48,17 +47,58 @@ CONTEXTO: ...
 
     console.log("[IA GESTOR] Interpretado:", { acao, entidade, nome, contexto });
 
-    const memorias = nome && nome.length > 2
-      ? await buscarMemoria(nome, 5)
-      : [];
-
-    let respostaContexto = "⚠️ Nenhum dado encontrado para análise.";
-
-    if (memorias.length > 0) {
-      respostaContexto = memorias.map((m, i) => `#${i + 1}: ${m.metadata.evento} → ${m.metadata.texto}`).join("\n");
+    if (!nome) {
+      await enviarRespostaWhatsApp(numeroGestor, "❌ Nenhum nome foi identificado para análise.");
+      return;
     }
 
-    const mensagemFinal = `
+    const memorias = await buscarMemoria(nome, 10);
+
+    if (["resumo", "sentimento", "status"].includes(acao) && memorias.length > 0) {
+      const historicoTexto = memorias.map(m => `• ${m.metadata.texto}`).join("\n");
+
+      const resumoPrompt = `
+Você é um assistente comercial. Resuma os principais pontos abaixo com foco em atendimento, qualidade, atrasos e sentimento geral.
+
+Histórico:
+${historicoTexto}
+
+Gere um parágrafo objetivo e direto.
+      `.trim();
+
+      const resumo = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: resumoPrompt }],
+        max_tokens: 200
+      });
+
+      const analise = resumo.choices[0].message.content.trim();
+
+      const mensagemFinal = `
+📋 *Resumo de Atendimento - ${nome}*
+
+🧠 Interpretação:
+• AÇÃO: ${acao}
+• ENTIDADE: ${entidade}
+• CONTEXTO: ${contexto}
+
+📝 Análise:
+${analise}
+
+🤖 IA Comercial LumièreGyn.
+      `.trim();
+
+      return await enviarRespostaWhatsApp(numeroGestor, mensagemFinal);
+    }
+
+    let respostaContexto = "⚠️ Nenhum dado encontrado para análise.";
+    if (memorias.length > 0) {
+      respostaContexto = memorias
+        .map((m, i) => `#${i + 1}: ${m.metadata.evento} → ${m.metadata.texto}`)
+        .join("\n");
+    }
+
+    const fallback = `
 📋 *Resposta da IA - Análise Comercial*
 
 📌 Pergunta: "${textoPergunta}"
@@ -72,9 +112,9 @@ CONTEXTO: ...
 ${respostaContexto}
 
 🤖 IA Comercial LumièreGyn.
-`.trim();
+    `.trim();
 
-    await enviarRespostaWhatsApp(numeroGestor, mensagemFinal);
+    await enviarRespostaWhatsApp(numeroGestor, fallback);
   } catch (err) {
     console.error("[ERRO perguntarViaIA]", err.message);
     await enviarRespostaWhatsApp(numeroGestor, "⚠️ Ocorreu um erro ao processar sua pergunta. Tente novamente.");
