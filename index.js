@@ -19,17 +19,18 @@ const VENDEDORES = require("./vendedores.json");
 const app = express();
 app.use(bodyParser.json());
 
+// ✅ Lista de números autorizados como gestores
 function isGestor(numero) {
   const numerosGestores = [
-    "+554731703288",
-    "+120363416457397022"
+    "+554731703288",                     // Número real
+    "+120363416457397022"               // Grupo com "+" incluso
   ];
   return numerosGestores.includes(numero);
 }
 
-// ✅ Middleware para interceptar perguntas de gestores
+// ✅ Middleware para interceptar perguntas de gestores via WhatsApp
 app.use("/conversa", async (req, res, next) => {
-  console.log("[DEBUG] Middleware /conversa entrou");
+  console.log("[DEBUG] ENTROU NO MIDDLEWARE DE GESTOR");
 
   try {
     const payload = req.body.payload;
@@ -62,7 +63,7 @@ app.post("/conversa", (req, res, next) => {
   next();
 });
 
-// 🚀 Fluxo comercial principal
+// 🚀 Fluxo principal de atendimento comercial
 app.post("/conversa/proccess", async (req, res) => {
   try {
     const payload = req.body.payload;
@@ -80,13 +81,12 @@ app.post("/conversa/proccess", async (req, res) => {
     const user = payload.user;
     const attendant = payload.attendant || {};
 
-    console.log("[DEBUG] Nome do cliente (user.Name):", user?.Name);
-    console.log("[DEBUG] Telefone do cliente (user.Phone):", user?.Phone);
-
     const nomeCliente = user.Name || "Cliente";
     const texto = message.text || message.caption || "[attachment]";
     const nomeVendedorRaw = attendant.Name || "";
 
+    console.log("[DEBUG] Nome do cliente (user.Name):", user?.Name);
+    console.log("[DEBUG] Telefone do cliente (user.Phone):", user?.Phone);
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
 
     logIA({
