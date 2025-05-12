@@ -55,7 +55,14 @@ CONTEXTO: ...
     const memorias = await buscarMemoria(nome, 10);
 
     if (["resumo", "sentimento", "status"].includes(acao) && memorias.length > 0) {
-      const historicoTexto = memorias.map(m => `• ${m.metadata.texto}`).join("\n");
+      const historicoTexto = memorias
+        .map(m => m.metadata.texto?.trim())
+        .filter(Boolean)
+        .slice(0, 8)
+        .map((t, i) => `• ${t}`)
+        .join("\n");
+
+      console.log("[DEBUG] Enviando histórico para análise do GPT:", historicoTexto);
 
       const resumoPrompt = `
 Você é um assistente comercial. Resuma os principais pontos abaixo com foco em atendimento, qualidade, atrasos e sentimento geral.
