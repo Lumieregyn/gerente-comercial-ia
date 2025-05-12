@@ -1,19 +1,28 @@
-function horasUteisEntreDatas(inicio, fim) {
-  const start = new Date(inicio);
-  const end = new Date(fim);
-  let horas = 0;
-  const cur = new Date(start);
+/**
+ * Calcula horas úteis entre duas datas.
+ * @param {Date} inicio
+ * @param {Date} fim
+ * @returns {number}
+ */
+function calcularHorasUteis(inicio, fim) {
+  const HORARIO_INICIO = 8;
+  const HORARIO_FIM = 19;
 
-  while (cur < end) {
-    const dia = cur.getDay();
-    const hora = cur.getHours();
-    if (dia >= 1 && dia <= 5 && hora >= 8 && hora < 19) {
-      horas++;
+  let total = 0;
+  let data = new Date(inicio);
+
+  while (data < fim) {
+    const hora = data.getHours();
+    const dia = data.getDay();
+
+    if (dia >= 1 && dia <= 5 && hora >= HORARIO_INICIO && hora < HORARIO_FIM) {
+      total++;
     }
-    cur.setHours(cur.getHours() + 1);
+
+    data.setHours(data.getHours() + 1);
   }
 
-  return horas;
+  return total;
 }
 
-module.exports = { horasUteisEntreDatas };
+module.exports = calcularHorasUteis;
