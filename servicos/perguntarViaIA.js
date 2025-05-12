@@ -40,7 +40,12 @@ CONTEXTO: ...
       return;
     }
 
-    const [, acao, entidade, nome, contexto] = match;
+    // ✅ Aplicando .trim() em todos os campos
+    const acao = match[1].trim();
+    const entidade = match[2].trim();
+    const nome = match[3].trim();
+    const contexto = match[4].trim();
+
     console.log("[IA GESTOR] Interpretado:", { acao, entidade, nome, contexto });
 
     const memorias = nome && nome.length > 2
