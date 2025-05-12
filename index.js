@@ -27,6 +27,7 @@ function isGestor(numero) {
   return numerosGestores.includes(numero);
 }
 
+// ✅ Middleware para interceptar perguntas de gestores
 app.use("/conversa", async (req, res, next) => {
   console.log("[DEBUG] Middleware /conversa entrou");
 
@@ -55,10 +56,13 @@ app.use("/conversa", async (req, res, next) => {
   }
 });
 
-app.post("/conversa", (req, res) => {
-  return res.status(200).json({ status: "OK - fallback ativo" });
+// ✅ Redireciona POST /conversa para /conversa/proccess
+app.post("/conversa", (req, res, next) => {
+  req.url = "/conversa/proccess";
+  next();
 });
 
+// 🚀 Fluxo comercial principal
 app.post("/conversa/proccess", async (req, res) => {
   try {
     const payload = req.body.payload;
