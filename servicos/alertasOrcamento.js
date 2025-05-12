@@ -1,41 +1,46 @@
-const { enviarMensagem } = require("./enviarMensagem");
-const MENSAGENS = require("../utils/mensagens");
-const { horasUteisEntreDatas } = require("../utils/horario-util");
-const { verificarRespostaOuEscalonar } = require("./verificarRespostaVendedor");
 const { dentroDoHorarioUtil } = require("../utils/dentroDoHorarioUtil");
+const { logIA } = require("../utils/logger");
+const { calcularHorasUteis } = require("../utils/horario-util");
 
-const GRUPO_GESTORES_ID = process.env.GRUPO_GESTORES_ID;
+const HISTORICO = new Map();
 
-/**
- * Dispara alertas conforme tempo útil e verifica resposta em 10 min
- */
 async function processarAlertaDeOrcamento({ nomeCliente, nomeVendedor, numeroVendedor, criadoEm, texto }) {
-  // ❌ Fora do horário? Pausa tudo
-  if (!dentroDoHorarioUtil()) {
-    console.log("[PAUSA] Fora do horário útil. Alerta não será enviado.");
+  const textoCheck = texto.toLowerCase();
+  if (!textoCheck.includes("orcamento") && !textoCheck.includes("preço") && !textoCheck.includes("valor")) {
+    console.log(`[INFO] Mensagem sem indicativo claro de orçamento. Ignorado: "${texto}"`);
     return;
   }
 
-  const horas = horasUteisEntreDatas(criadoEm, new Date());
-
-  if (horas >= 18) {
-    await enviarMensagem(numeroVendedor, MENSAGENS.alertaFinal(nomeVendedor, nomeCliente));
-
-    setTimeout(() => {
-      verificarRespostaOuEscalonar({
-        nomeCliente,
-        nomeVendedor,
-        numeroVendedor
-      });
-    }, 10 * 60 * 1000);
-
-  } else if (horas >= 12) {
-    await enviarMensagem(numeroVendedor, MENSAGENS.alerta2(nomeVendedor, nomeCliente));
-  } else if (horas >= 6) {
-    await enviarMensagem(numeroVendedor, MENSAGENS.alerta1(nomeVendedor, nomeCliente));
-  } else {
-    console.log(`[INFO] Cliente ${nomeCliente} ainda não atingiu 6h úteis de espera.`);
+  if (!dentroDoHorarioUtil()) {
+    console.log("[PAUSA] Fora do horário útil. Alerta de orçamento não será processado.");
+    return;
   }
+
+  const chave = nomeCliente;
+  const horaReferencia = criadoEm || new Date();
+
+  if (!HISTORICO.has(chave)) {
+    HISTORICO.set(chave, { inicio: horaReferencia });
+  }
+
+  const { inicio } = HISTORICO.get(chave);
+  const horasUteis = calcularHorasUteis(inicio, new Date());
+
+  if (horasUteis < 6) {
+    console.log(`[INFO] Cliente ${nomeCliente} ainda não atingiu 6h úteis de espera.`);
+    return;
+  }
+
+  // Exemplo apenas de log (os disparos de mensagens reais ficam fora dessa função)
+  console.log(`[ALERTA] Cliente ${nomeCliente} está aguardando orçamento há ${horasUteis}h úteis.`);
+  await logIA({
+    cliente: nomeCliente,
+    vendedor: nomeVendedor,
+    evento: "Orçamento em atraso",
+    tipo: "alerta",
+    texto: `Cliente esperando desde ${inicio.toISOString()}`,
+    decisaoIA: "Aguardando orçamento há mais de 6h úteis"
+  });
 }
 
 module.exports = { processarAlertaDeOrcamento };
