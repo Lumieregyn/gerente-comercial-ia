@@ -1,6 +1,6 @@
 const axios = require("axios");
 const { OpenAI } = require("openai");
-const { buscarMemoria } = require("../utils/memoria");
+const { buscarMemoria, buscarTodosLogs } = require("../utils/memoria");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -32,7 +32,7 @@ CONTEXTO: ...
 
     const resposta = interpretacao.choices[0].message.content;
     const match = resposta.match(
-      /ACAO:\s*(.+)\nENTIDADE:\s*(.+)\nNOME:\s*(.+)\nCONTEXTO:\s*(.+)/i
+      /ACAO:\s*(.+)\nENTIDADE:\s*(.+)\nNOME:\s*(.*)\nCONTEXTO:\s*(.+)/i
     );
 
     if (!match) {
@@ -47,6 +47,39 @@ CONTEXTO: ...
 
     console.log("[IA GESTOR] Interpretado:", { acao, entidade, nome, contexto });
 
+    // 👉 Ação global: ranking por vendedor
+    if (acao === "contagem" && entidade === "vendedor") {
+      const logs = await buscarTodosLogs(); // assume retorno com .metadata
+
+      const mapa = {};
+      for (const l of logs) {
+        const vendedor = l.metadata?.vendedor?.trim();
+        const cliente = l.metadata?.cliente?.trim();
+        if (vendedor && cliente) {
+          if (!mapa[vendedor]) mapa[vendedor] = new Set();
+          mapa[vendedor].add(cliente);
+        }
+      }
+
+      const ranking = Object.entries(mapa)
+        .map(([v, clientes]) => ({ vendedor: v, total: clientes.size }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10)
+        .map((r, i) => `${i + 1}. ${r.vendedor} → ${r.total} cliente(s)`);
+
+      const resposta = `
+📊 *Ranking de Vendedores por Atendimentos*:
+
+${ranking.join("\n")}
+
+🤖 IA Comercial LumièreGyn.
+      `.trim();
+
+      await enviarRespostaWhatsApp(numeroGestor, resposta);
+      return;
+    }
+
+    // 🧠 Ação contextual com nome
     if (!nome || nome.length < 2 || nome.toLowerCase() === "desconhecido") {
       await enviarRespostaWhatsApp(numeroGestor, "❌ Não consegui identificar um nome válido na pergunta.");
       return;
@@ -61,8 +94,6 @@ CONTEXTO: ...
         .slice(0, 8)
         .map((t, i) => `• ${t}`)
         .join("\n");
-
-      console.log("[DEBUG] Enviando histórico para análise do GPT:", historicoTexto);
 
       if (!historicoTexto || historicoTexto.length < 40) {
         await enviarRespostaWhatsApp(numeroGestor, "⚠️ Não encontrei conteúdo suficiente para gerar um resumo.");
