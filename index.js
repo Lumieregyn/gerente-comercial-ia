@@ -27,7 +27,7 @@ function isGestor(numero) {
   return numerosGestores.includes(numero);
 }
 
-// Middleware de interceptação para perguntas do grupo de gestores
+// Middleware para perguntas dos gestores
 app.use("/conversa", async (req, res, next) => {
   console.log("[DEBUG] ENTROU NO MIDDLEWARE DE GESTOR");
 
@@ -56,13 +56,11 @@ app.use("/conversa", async (req, res, next) => {
   }
 });
 
-// Redirecionamento padrão
 app.post("/conversa", (req, res, next) => {
   req.url = "/conversa/proccess";
   next();
 });
 
-// Processamento principal da conversa
 app.post("/conversa/proccess", async (req, res) => {
   try {
     const payload = req.body.payload;
@@ -96,7 +94,7 @@ app.post("/conversa/proccess", async (req, res) => {
     const nomeVendedorRaw = attendant?.Name?.trim() || "Bot";
 
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
-    console.log("[DEBUG] Nome do vendedor (attendant.Name):", nomeVendedorRaw);
+    console.log("[DEBUG] Nome do vendedor:", nomeVendedorRaw);
     console.log("[DEBUG] Horário útil?", dentroDoHorarioUtil());
 
     logIA({
