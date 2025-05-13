@@ -96,10 +96,23 @@ function mensagemEhRuido(texto = "") {
     "kkk", "haha", "blz", "👍🏻", "😅", "😄"
   ];
 
+  const padroesFrasesComuns = [
+    "nossas boas vindas ao atendimento da",
+    "para iniciarmos, qual o seu nome",
+    "faço parte da equipe de atendimento",
+    "obrigado por entrar em contato",
+    "te encaminhei para um atendente",
+    "em breve retornaremos",
+    "estamos te transferindo",
+    "sou atendente virtual",
+    "em instantes você será atendido"
+  ];
+
   return (
     normalizado.length < 3 ||
     padroes.some(p => normalizado === p || normalizado.includes(p)) ||
-    /^[\W\d\s]+$/.test(normalizado) // Apenas símbolos ou números
+    padroesFrasesComuns.some(p => normalizado.includes(p)) ||
+    /^[\W\d\s]+$/.test(normalizado)
   );
 }
 
