@@ -27,7 +27,7 @@ function isGestor(numero) {
   return numerosGestores.includes(numero);
 }
 
-// Middleware para interceptar perguntas de gestores
+// Middleware de interceptação para perguntas do grupo de gestores
 app.use("/conversa", async (req, res, next) => {
   console.log("[DEBUG] ENTROU NO MIDDLEWARE DE GESTOR");
 
@@ -56,11 +56,13 @@ app.use("/conversa", async (req, res, next) => {
   }
 });
 
+// Redirecionamento padrão
 app.post("/conversa", (req, res, next) => {
   req.url = "/conversa/proccess";
   next();
 });
 
+// Processamento principal da conversa
 app.post("/conversa/proccess", async (req, res) => {
   try {
     const payload = req.body.payload;
@@ -71,7 +73,7 @@ app.post("/conversa/proccess", async (req, res) => {
       return res.status(200).json({ status: "Ignorado sem mensagem válida." });
     }
 
-    if (!payload?.user || !payload.channel) {
+    if (!payload || !payload.user || !payload.channel) {
       console.error("[ERRO] Payload incompleto:", req.body);
       return res.status(400).json({ error: "Payload incompleto" });
     }
@@ -79,13 +81,23 @@ app.post("/conversa/proccess", async (req, res) => {
     const user = payload.user;
     const attendant = payload.attendant || {};
 
-    const nomeCliente = user?.Name?.trim() || `Cliente_${user?.Phone || "Desconhecido"}`;
+    let nomeCliente = user?.Name?.trim();
+    if (
+      !nomeCliente ||
+      nomeCliente.length < 2 ||
+      nomeCliente.toLowerCase().includes("posição") ||
+      nomeCliente.toLowerCase().includes("pedido") ||
+      nomeCliente.toLowerCase().includes("atendimento")
+    ) {
+      nomeCliente = "Cliente_" + (user?.Phone || "Desconhecido");
+    }
+
     const texto = message.text || message.caption || "[attachment]";
     const nomeVendedorRaw = attendant?.Name?.trim() || "Bot";
 
-    console.log("[DEBUG] Nome do cliente (user.Name):", nomeCliente);
-    console.log("[DEBUG] Nome do vendedor (attendant.Name):", nomeVendedorRaw);
     console.log(`[LOG] Mensagem recebida de ${nomeCliente}: "${texto}"`);
+    console.log("[DEBUG] Nome do vendedor (attendant.Name):", nomeVendedorRaw);
+    console.log("[DEBUG] Horário útil?", dentroDoHorarioUtil());
 
     logIA({
       cliente: nomeCliente,
@@ -96,9 +108,7 @@ app.post("/conversa/proccess", async (req, res) => {
       decisaoIA: "Mensagem inicial recebida e encaminhada para análise"
     });
 
-    const horaOK = dentroDoHorarioUtil();
-    console.log("[DEBUG] Horário útil?", horaOK);
-    if (!horaOK) {
+    if (!dentroDoHorarioUtil()) {
       console.log("[PAUSA] Fora do horário útil. Alerta não será enviado.");
       return res.json({ status: "Fora do horário útil" });
     }
@@ -170,6 +180,7 @@ app.post("/conversa/proccess", async (req, res) => {
 
     const normalizeNome = nome =>
       nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+
     const keyVend = normalizeNome(nomeVendedorRaw);
     const numeroVendedor = VENDEDORES[keyVend];
 
