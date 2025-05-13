@@ -14,15 +14,10 @@ const {
  * @returns {number[]} vetor de 1536 floats
  */
 async function gerarEmbedding(text) {
-  if (!text || text.trim().length === 0) {
-    throw new Error("Texto vazio: não é possível gerar embedding.");
-  }
-
   const resp = await openai.embeddings.create({
     model: "text-embedding-ada-002",
     input: text
   });
-
   return resp.data[0].embedding;
 }
 
@@ -51,4 +46,34 @@ async function buscarMemoria(text, topK = 5) {
   }));
 }
 
-module.exports = { buscarMemoria };
+/**
+ * Busca todos os vetores da Pinecone com paginação.
+ * @returns {Promise<Array<{id: string, metadata: object}>>}
+ */
+async function buscarTodosLogs() {
+  let todos = [];
+  let nextToken = null;
+
+  do {
+    const params = new URLSearchParams({
+      includeMetadata: "true",
+      limit: "1000"
+    });
+    if (nextToken) {
+      params.append("next", nextToken);
+    }
+
+    const resp = await axios.get(
+      `${PINECONE_INDEX_URL}/vectors?${params.toString()}`,
+      { headers: { "Api-Key": PINECONE_API_KEY } }
+    );
+
+    const data = resp.data;
+    todos.push(...(data.vectors || []));
+    nextToken = data?.next;
+  } while (nextToken);
+
+  return todos;
+}
+
+module.exports = { buscarMemoria, buscarTodosLogs };
