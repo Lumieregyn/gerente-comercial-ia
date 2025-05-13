@@ -9,23 +9,28 @@ const {
 } = process.env;
 
 /**
- * Gera embedding via OpenAI (text-embedding-ada-002).
+ * Gera embedding com OpenAI (text-embedding-ada-002)
  * @param {string} text
- * @returns {number[]} vetor de 1536 floats
+ * @returns {Promise<number[]>}
  */
 async function gerarEmbedding(text) {
+  if (!text || text.trim().length < 1) {
+    throw new Error("Texto vazio para embedding");
+  }
+
   const resp = await openai.embeddings.create({
     model: "text-embedding-ada-002",
     input: text
   });
+
   return resp.data[0].embedding;
 }
 
 /**
- * Busca os N registros mais similares ao texto de consulta.
+ * Consulta Pinecone por similaridade vetorial
  * @param {string} text
  * @param {number} topK
- * @returns {Promise<Array<{score:number, metadata:object}>>}
+ * @returns {Promise<Array<{ score: number, metadata: object }>>}
  */
 async function buscarMemoria(text, topK = 5) {
   const vector = await gerarEmbedding(text);
@@ -47,8 +52,8 @@ async function buscarMemoria(text, topK = 5) {
 }
 
 /**
- * Busca todos os vetores da Pinecone com paginação.
- * @returns {Promise<Array<{id: string, metadata: object}>>}
+ * Busca todos os vetores da Pinecone com paginação automática
+ * @returns {Promise<Array<{ id: string, metadata: object }>>}
  */
 async function buscarTodosLogs() {
   let todos = [];
@@ -76,4 +81,8 @@ async function buscarTodosLogs() {
   return todos;
 }
 
-module.exports = { buscarMemoria, buscarTodosLogs };
+module.exports = {
+  buscarMemoria,
+  gerarEmbedding,
+  buscarTodosLogs
+};
