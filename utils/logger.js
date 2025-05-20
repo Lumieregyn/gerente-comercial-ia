@@ -3,16 +3,6 @@
 const { registrarLogSemantico } = require("./logsIA");
 
 /**
- * Dispara o log semântico em background para não bloquear o fluxo principal.
- */
-function logIA(context) {
-  registrarLogSemantico(context).catch(console.error);
-}
-
-module.exports = { logIA };
-
-
-/**
  * Log semântico para eventos relacionados à IA Gerente Comercial.
  * @param {Object} params - Detalhes do log.
  * @param {string} params.cliente - Nome do cliente.

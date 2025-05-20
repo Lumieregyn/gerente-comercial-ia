@@ -11,18 +11,17 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
  *   nomeVendedor: string,
  *   numeroVendedor: string,
  *   contexto: string,
- *   texto: string,
- *   clienteId: string
+ *   texto: string
  * }} dados
- */
-async function checklistFechamento({ nomeCliente, nomeVendedor, numeroVendedor, contexto, texto, clienteId }) {
+*/
+async function checklistFechamento({ nomeCliente, nomeVendedor, numeroVendedor, contexto, texto }) {
   if (!contexto || contexto.trim().length === 0) {
     console.warn("[WARN] Contexto extra vazio. Pulando checklist.");
     return;
   }
 
   // 1) Buscar histórico semântico relevante do cliente
-  const hist = await buscarMemoria(contexto, clienteId, 3);
+  const hist = await buscarMemoria(contexto, 3);
   const histText = hist
     .map((h, i) => `#${i + 1} [${h.score.toFixed(2)}]: ${h.metadata.evento} → ${h.metadata.texto}`)
     .join("\n");

@@ -3,7 +3,7 @@
 const axios = require("axios");
 const pdfParse = require("pdf-parse");
 const { OpenAI } = require("openai");
-const { horasUteisEntreDatas } = require("../utils/horario-util");
+const calcularHorasUteis = require("../utils/horario-util");
 const { getCliente, atualizarCliente, marcarAlerta } = require("../utils/controleDeAlertas");
 const { registrarLogSemantico } = require("../utils/logsIA");
 const { buscarMemoria } = require("../utils/memoria");
@@ -147,7 +147,7 @@ Responda apenas "Sim" ou "Não".
       vendedor: nomeVendedor,
       alertas: {}
     };
-    const horas = horasUteisEntreDatas(criadoEm, agora);
+    const horas = calcularHorasUteis(criadoEm, agora);
     let acao = null;
 
     if (horas >= 18 && !statusAtual.alertas["18h"]) {
