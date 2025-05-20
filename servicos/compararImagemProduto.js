@@ -8,9 +8,9 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 /**
  * Compara imagem enviada pelo cliente com a imagem do orçamento após sinal de fechamento.
  */
-async function compararImagemProduto({ nomeCliente, nomeVendedor, numeroVendedor, imagemClienteDesc, imagemOrcamentoDesc, contexto, clienteId }) {
+async function compararImagemProduto({ nomeCliente, nomeVendedor, numeroVendedor, imagemClienteDesc, imagemOrcamentoDesc, contexto }) {
   // 1) Recuperar histórico relevante do cliente
-  const hist = await buscarMemoria("imagem produto", clienteId, 3);
+  const hist = await buscarMemoria("imagem produto", 3);
   const histText = hist
     .map((h, i) => `#${i+1} [${h.score.toFixed(2)}]: ${h.metadata.evento} → ${h.metadata.texto}`)
     .join("\n");

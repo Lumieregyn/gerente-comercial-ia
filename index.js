@@ -118,6 +118,8 @@ app.post("/conversa/proccess", async (req, res) => {
 
     let contextoExtra = "";
     let imagemBase64 = null;
+    let imagemClienteDesc = null;
+    let orcamentoTexto = "";
 
     if (Array.isArray(message.attachments)) {
       for (const a of message.attachments) {
@@ -140,6 +142,7 @@ app.post("/conversa/proccess", async (req, res) => {
           const t = await extrairTextoPDF(a.payload.url);
           if (t) {
             contextoExtra += "\n" + t;
+            orcamentoTexto += "\n" + t;
             await logIA({
               cliente: nomeCliente,
               vendedor: nomeVendedorRaw,
@@ -155,6 +158,7 @@ app.post("/conversa/proccess", async (req, res) => {
           const t = await analisarImagem(a.payload.url);
           if (t) {
             contextoExtra += "\n" + t;
+            imagemClienteDesc = t;
             await logIA({
               cliente: nomeCliente,
               vendedor: nomeVendedorRaw,
@@ -205,13 +209,14 @@ app.post("/conversa/proccess", async (req, res) => {
         texto
       });
 
-      if (imagemBase64) {
+      if (imagemClienteDesc && orcamentoTexto) {
         const { compararImagemProduto } = require("./servicos/compararImagemProduto");
         await compararImagemProduto({
           nomeCliente,
           nomeVendedor: nomeVendedorRaw,
           numeroVendedor,
-          imagemBase64,
+          imagemClienteDesc,
+          imagemOrcamentoDesc: orcamentoTexto.trim(),
           contexto: contextoExtra
         });
       }
@@ -220,7 +225,8 @@ app.post("/conversa/proccess", async (req, res) => {
         nomeCliente,
         nomeVendedor: nomeVendedorRaw,
         numeroVendedor,
-        contexto: contextoExtra
+        contexto: contextoExtra,
+        texto
       });
     } else {
       await processarAlertaDeOrcamento({

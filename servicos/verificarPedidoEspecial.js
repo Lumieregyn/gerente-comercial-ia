@@ -8,9 +8,9 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 /**
  * Verifica itens sem SKU ou imagem formal no orçamento após intenção de fechamento.
  */
-async function verificarPedidoEspecial({ nomeCliente, nomeVendedor, numeroVendedor, contexto, texto, clienteId }) {
+async function verificarPedidoEspecial({ nomeCliente, nomeVendedor, numeroVendedor, contexto, texto }) {
   // 1) histórico relevante do cliente
-  const hist = await buscarMemoria(texto, clienteId, 3);
+  const hist = await buscarMemoria(texto, 3);
   const histText = hist
     .map((h, i) => `#${i+1} [${h.score.toFixed(2)}]: ${h.metadata.evento} → ${h.metadata.texto}`)
     .join("\n");
