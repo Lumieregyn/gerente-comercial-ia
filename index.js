@@ -177,7 +177,7 @@ app.post("/conversa/proccess", async (req, res) => {
     }
 
     const normalizeNome = nome =>
-      nome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+      nome.normalize("NFD").replace(/[^\w\s]/gi, "").replace(/\s+/g, "_").trim().toLowerCase();
 
     const keyVend = normalizeNome(nomeVendedorRaw);
     const numeroVendedor = VENDEDORES[keyVend];
@@ -202,7 +202,8 @@ app.post("/conversa/proccess", async (req, res) => {
         nomeVendedor: nomeVendedorRaw,
         numeroVendedor,
         contexto: contextoExtra,
-        texto
+        texto,
+        clienteId: normalizeNome(nomeCliente)
       });
 
       if (imagemBase64) {
@@ -220,7 +221,8 @@ app.post("/conversa/proccess", async (req, res) => {
         nomeCliente,
         nomeVendedor: nomeVendedorRaw,
         numeroVendedor,
-        contexto: contextoExtra
+        contexto: contextoExtra,
+        clienteId: normalizeNome(nomeCliente)
       });
     } else {
       await processarAlertaDeOrcamento({
