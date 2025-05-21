@@ -15,7 +15,8 @@ const {
  */
 async function gerarEmbedding(text) {
   if (!text || text.trim().length < 1) {
-    throw new Error("Texto vazio para embedding");
+    console.warn("[SKIP] Embedding ignorado: texto vazio.");
+    return []; // Retorna vetor vazio em vez de lançar erro
   }
 
   const resp = await openai.embeddings.create({
@@ -34,6 +35,7 @@ async function gerarEmbedding(text) {
  */
 async function buscarMemoria(text, topK = 5) {
   const vector = await gerarEmbedding(text);
+  if (!vector || vector.length === 0) return [];
 
   const resp = await axios.post(
     `${PINECONE_INDEX_URL}/query`,
