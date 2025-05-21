@@ -1,8 +1,5 @@
-// servicos/detectarIntencao.js
-
 const { OpenAI } = require("openai");
 
-// Instancia o cliente OpenAI já com a chave de API
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
@@ -13,14 +10,23 @@ const openai = new OpenAI({
 async function detectarIntencao(nomeCliente, texto, contexto = "") {
   const prompt = `
 Você é a Gerente Comercial IA da Lumiéregyn.
-Analise se o cliente "${nomeCliente}" está aguardando um orçamento comercial
-com base na seguinte mensagem e contexto:
+Seu papel é identificar se o cliente "${nomeCliente}" está AGUARDANDO um orçamento comercial,
+baseado na seguinte mensagem e contexto.
 
 Mensagem:
 "${texto.replace(/\n/g, " ")}"
 
-Contexto adicional:
+Contexto:
 "${contexto.replace(/\n/g, " ")}"
+
+Interprete com base em linguagem natural. 
+Considere mensagens como:
+- "Qual o valor desse modelo?"
+- "Pode me mandar as opções?"
+- "Gostei desse aqui, qual o preço?"
+- "Esse modelo tem em dourado?"
+
+Evite confundir com intenção de fechamento (ex: "Pode fechar", "Vamos seguir com esse").
 
 Responda apenas com "Sim" ou "Não".
 `;
@@ -30,6 +36,7 @@ Responda apenas com "Sim" ou "Não".
       model: "gpt-4o",
       messages: [{ role: "user", content: prompt }]
     });
+
     const resposta = completion.choices[0].message.content.toLowerCase();
     return resposta.includes("sim");
   } catch (err) {
