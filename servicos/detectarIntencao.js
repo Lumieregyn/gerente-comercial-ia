@@ -1,32 +1,26 @@
+// servicos/detectarIntencao.js
+
 const { OpenAI } = require("openai");
 
+// Instancia o cliente OpenAI já com a chave de API
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
 /**
- * Retorna true se a IA entender que o cliente sinalizou intenção de fechamento do pedido.
+ * Retorna true se a IA entender que o cliente está aguardando orçamento.
  */
-async function detectarIntencaoDeFechamento(nomeCliente, texto, contexto = "") {
+async function detectarIntencao(nomeCliente, texto, contexto = "") {
   const prompt = `
 Você é a Gerente Comercial IA da Lumiéregyn.
-Seu papel é identificar se o cliente "${nomeCliente}" está sinalizando que deseja FECHAR um pedido ou APROVAR o orçamento.
+Analise se o cliente "${nomeCliente}" está aguardando um orçamento comercial
+com base na seguinte mensagem e contexto:
 
-Mensagem recebida:
+Mensagem:
 "${texto.replace(/\n/g, " ")}"
 
-Contexto anterior:
+Contexto adicional:
 "${contexto.replace(/\n/g, " ")}"
-
-Sinais típicos de fechamento:
-- "Pode fechar"
-- "Vamos seguir com esse"
-- "Aprovado"
-- "Pode fazer o pedido"
-- "Pode emitir a nota"
-- "Esse mesmo"
-
-⚠️ Importante: NÃO considerar como fechamento dúvidas, perguntas de valor, ou solicitação de orçamento.
 
 Responda apenas com "Sim" ou "Não".
 `;
@@ -36,13 +30,12 @@ Responda apenas com "Sim" ou "Não".
       model: "gpt-4o",
       messages: [{ role: "user", content: prompt }]
     });
-
     const resposta = completion.choices[0].message.content.toLowerCase();
     return resposta.includes("sim");
   } catch (err) {
-    console.error("[ERRO] Falha na detecção de fechamento:", err.message);
+    console.error("[ERRO] Falha na detecção de intenção:", err.message);
     return false;
   }
 }
 
-module.exports = { detectarIntencaoDeFechamento };
+module.exports = { detectarIntencao };
