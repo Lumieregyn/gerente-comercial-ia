@@ -1,0 +1,9 @@
+function normalizeNome(nome) {
+  return nome
+    .normalize("NFD") // Remove acentuação
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+module.exports = { normalizeNome };
