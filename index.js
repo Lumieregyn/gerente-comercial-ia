@@ -7,6 +7,7 @@ const { transcreverAudio } = require("./servicos/transcreverAudio");
 const { extrairTextoPDF } = require("./servicos/extrairTextoPDF");
 const { analisarImagem } = require("./servicos/analisarImagem");
 const { detectarIntencao } = require("./servicos/detectarIntencao");
+const { detectarIntencaoDeFechamento } = require("./servicos/detectarIntencaoDeFechamento");
 const { processarAlertaDeOrcamento } = require("./servicos/alertasOrcamento");
 const { checklistFechamento } = require("./servicos/checklistFechamento");
 const { verificarPedidoEspecial } = require("./servicos/verificarPedidoEspecial");
@@ -14,6 +15,7 @@ const { mensagemEhRuido } = require("./utils/controleDeRuido");
 const { dentroDoHorarioUtil } = require("./utils/dentroDoHorarioUtil");
 const { logIA } = require("./utils/logger");
 const { perguntarViaIA } = require("./servicos/perguntarViaIA");
+const { normalizeNome } = require("./utils/normalizeNome");
 const VENDEDORES = require("./vendedores.json");
 
 const app = express();
@@ -176,9 +178,6 @@ app.post("/conversa/proccess", async (req, res) => {
       }
     }
 
-    const normalizeNome = nome =>
-      nome.normalize("NFD").replace(/[^\w\s]/gi, "").replace(/\s+/g, "_").trim().toLowerCase();
-
     const keyVend = normalizeNome(nomeVendedorRaw);
     const numeroVendedor = VENDEDORES[keyVend];
 
@@ -187,14 +186,12 @@ app.post("/conversa/proccess", async (req, res) => {
     }
 
     const criadoEm = new Date(message.CreatedAt || payload.timestamp);
-    const sinalizouFechamento = await detectarIntencao(
-      nomeCliente,
-      texto,
-      contextoExtra
-    );
-    console.log("[DEBUG] detectou intenção de fechamento?", sinalizouFechamento);
+    const aguardandoOrcamento = await detectarIntencao(nomeCliente, texto, contextoExtra);
+    const querFechar = !aguardandoOrcamento && await detectarIntencaoDeFechamento(nomeCliente, texto, contextoExtra);
 
-    if (sinalizouFechamento) {
+    console.log("[DEBUG] Detecção: orçamento?", aguardandoOrcamento, "| fechamento?", querFechar);
+
+    if (querFechar) {
       console.log("[IA] Intenção de fechamento detectada.");
 
       await checklistFechamento({
@@ -224,7 +221,7 @@ app.post("/conversa/proccess", async (req, res) => {
         contexto: contextoExtra,
         clienteId: normalizeNome(nomeCliente)
       });
-    } else {
+    } else if (aguardandoOrcamento) {
       await processarAlertaDeOrcamento({
         nomeCliente,
         nomeVendedor: nomeVendedorRaw,
