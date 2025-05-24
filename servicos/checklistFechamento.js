@@ -1,5 +1,7 @@
 const axios = require("axios");
 const { OpenAI } = require("openai");
+const VENDEDORES = require("../vendedores.json");
+const { normalizeNome } = require("../utils/normalizeNome");
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -56,8 +58,14 @@ Se estiver tudo certo, responda apenas: "Checklist OK. Nenhuma pendência.".
     if (!analise.toLowerCase().includes("nenhuma pendência")) {
       const mensagem = `✅ *Checklist Final de Fechamento - Análise IA*\n\n⚠️ Prezado(a) *${nomeVendedor}*, identificamos pendências que devem ser ajustadas antes de fechar o pedido:\n\n${analise}\n\n💡 Recomendamos validar com o cliente para evitar problemas futuros.`;
 
+      const grupo = VENDEDORES[normalizeNome(nomeVendedor)]?.grupoAlerta;
+      if (!grupo) {
+        console.warn(`[WARN] Grupo de alerta não encontrado para ${nomeVendedor}. Alerta não enviado.`);
+        return;
+      }
+
       await axios.post(`${process.env.WPP_URL}/send-message`, {
-        number: numeroVendedor,
+        number: grupo,
         message: mensagem
       });
     }
