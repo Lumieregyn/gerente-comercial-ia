@@ -1,6 +1,9 @@
+const axios = require("axios");
 const { dentroDoHorarioUtil } = require("../utils/dentroDoHorarioUtil");
 const { logIA } = require("../utils/logger");
 const calcularHorasUteis = require("../utils/horario-util");
+const VENDEDORES = require("../vendedores.json");
+const { normalizeNome } = require("../utils/normalizeNome");
 
 const HISTORICO = new Map();
 
@@ -32,6 +35,20 @@ async function processarAlertaDeOrcamento({ nomeCliente, nomeVendedor, numeroVen
   }
 
   console.log(`[ALERTA] Cliente ${nomeCliente} está aguardando orçamento há ${horasUteis}h úteis.`);
+
+  const grupo = VENDEDORES[normalizeNome(nomeVendedor)]?.grupoAlerta;
+  if (!grupo) {
+    console.warn(`[WARN] Grupo de alerta não encontrado para ${nomeVendedor}. Alerta não enviado.`);
+    return;
+  }
+
+  const mensagem = `🚨 *Alerta de Orçamento Atrasado*\n\n⚠️ Prezado(a) *${nomeVendedor}*, o cliente *${nomeCliente}* está aguardando o orçamento há *${horasUteis} horas úteis*.\n\nSolicitamos providências para não comprometer o atendimento.`;
+
+  await axios.post(`${process.env.WPP_URL}/send-message`, {
+    number: grupo,
+    message: mensagem
+  });
+
   await logIA({
     cliente: nomeCliente,
     vendedor: nomeVendedor,
