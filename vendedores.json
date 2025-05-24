@@ -1,6 +1,10 @@
 {
-  "cindy loren": "554731703288",
-  "ana clara martins": "5562991899053",
-  "emily sequeira": "5562981704171",
-  "fernando fonseca": "5562985293035"
+  "cindy_loren": {
+    "numero": "+554731703288",
+    "grupoAlerta": "120363402331096840@g.us"
+  },
+  "ana_clara_martins": {
+    "numero": "+556291555789",
+    "grupoAlerta": "120363418324174595@g.us"
+  }
 }
